@@ -1,0 +1,485 @@
+#!/usr/bin/env python
+import os
+import cStringIO
+import re
+import sys
+import shlex
+from itertools import chain
+from collections import namedtuple
+
+Defs = namedtuple('Defs', ('var', 'func', 'itemlit', 'field', 'func_index'))
+Func = namedtuple('Func', ('name', 'srcfile'))
+Var = namedtuple('Var', ('name', 'type', 'symbol'))
+Itemlit = namedtuple('Itemlit', ('field', 'value', 'symbol'))
+Field = namedtuple('Field', ('field', 'symbol'))
+
+TOP_LEVEL = {'var', 'begin', 'end'}
+TYPES = {'uint', 'item'}
+STATEMENTS = {'rewind', 'stop'}
+RESERVED = TOP_LEVEL | TYPES | STATEMENTS | {'not', 'and', 'or'}
+PREFIX = 'reel_cod'
+C_INDENT = '  '
+
+LINE_RE = re.compile('([ ]*)(#?)([a-zA-Z0-9_]*)(.*)')
+VAR_RE = re.compile('([a-zA-Z_][a-zA-Z0-9_]*) ([a-z\->]+)')
+NUMBER_RE = re.compile('[0-9]+')
+FUNC_RE = re.compile('\s(reelfunc_[a-zA-Z0-9_]+)\s*\(')
+
+STDLIB = ['reel_std.c']
+
+class UndoableIterator(object):
+    def __init__(self, itr):
+        self.itr = itr
+        self.return_prev = False
+
+    def __iter__(self):
+        while True:
+            if self.return_prev:
+                self.return_prev = False
+                yield self.prev
+            else:
+                self.prev = self.itr.next()
+                yield self.prev
+
+    def undo(self):
+        self.return_prev = True
+
+def fatal(msg, line_no):
+    if line_no:
+        print >> sys.stderr, 'line %d: %s' % (line_no, msg)
+    else:
+        print >> sys.stderr, msg
+    sys.exit(1)
+
+def arg_itemliteral(arg, defs):
+    if arg in defs.itemlit:
+        symbol = defs.itemlit[arg].symbol
+    else:
+        index = len(defs.itemlit)
+        field, val = arg.split('=', 1)
+        field = field[1:]
+        symbol = '%s_lit_%s_%d' % (PREFIX, field, index)
+        defs.itemlit[arg] = Itemlit(field, val, symbol)
+    return 'ctx->item_literals[%s]' % symbol
+
+def arg_item(arg, defs):
+    if arg == '$time':
+        return 'ev->timestamp', 'uint'
+    else:
+        if arg in defs.field:
+            symbol = defs.field[arg].symbol
+        else:
+            field = arg[1:]
+            symbol = '%s_field_%s' % (PREFIX, field)
+            defs.field[field] = Field(field, symbol)
+            expr = 'ctx->fields[%s]' % symbol
+        return '(%s ? ev->items[%s - 1]: 0)' % (expr, expr), 'item'
+
+def arg_uintliteral(arg):
+    return arg
+
+def arg_var(arg, defs):
+    var = defs.var[arg]
+    return '&ctx->vars[%s].value' % var.symbol, '%sptr' % var.type
+
+def compile_func(func, args, defs, out, line_no, c_indent):
+    types = []
+    compiled = []
+    if isinstance(args, basestring):
+        out.write('%s/* %d: %s%s */\n' % (c_indent, line_no, func, args))
+        args = shlex.split(args, posix=True)
+    for arg in args:
+        if '=' in arg:
+            comp, vartype = arg_itemliteral(arg, defs), 'item'
+        elif '$' in arg:
+            comp, vartype = arg_item(arg, defs)
+        elif NUMBER_RE.match(arg):
+            comp, vartype = arg_uintliteral(arg), 'uint'
+        elif arg in defs.var:
+            comp, vartype = arg_var(arg, defs)
+        else:
+            fatal("Undefined argument '%s'" % arg, line_no)
+        compiled.append(comp)
+        types.append(vartype)
+    funcname = 'reelfunc_%s_%s' % (func, '_'.join(types))
+    if funcname in defs.func:
+        out.write('%s%s(ctx, ev, %d, %s)' %\
+                  (c_indent, funcname, defs.func_index[0], ', '.join(compiled)))
+        defs.func_index[0] += 1
+    else:
+        fatal("Function '%s' not found" % funcname, line_no)
+
+def compile_conditional(func, args, defs, out, line_no, c_indent):
+    out.write('%s/* %d: %s%s */\n' % (c_indent, line_no, func, args))
+    out.write('%sif (' % c_indent)
+    tokens = UndoableIterator(iter(shlex.split(func + args, posix=True)))
+    for token in tokens:
+        if token == 'not':
+            out.write('!')
+        elif token == 'and':
+            out.write(' && ')
+        elif token == 'or':
+            out.write(' || ')
+        else:
+            args = []
+            for arg in tokens:
+                if arg in ('and', 'or'):
+                    tokens.undo()
+                    break
+                else:
+                    args.append(arg)
+            if token in STATEMENTS:
+                fatal("Statement '%s' not allowed in conditional",
+                      token,
+                      line_no)
+            compile_func(token, args, defs, out, line_no, '')
+    out.write(')')
+
+def parse_var(args, defs, line_no):
+    try:
+        name, vartype = VAR_RE.match(args.strip()).groups()
+    except:
+        fatal("Invalid variable definition", line_no)
+    if name in RESERVED:
+        fatal("Variable name '%s' is reserved" % name, line_no)
+    if vartype not in TYPES:
+        fatal("Invalid type '%s'" % vartype, line_no)
+    index = len(defs.var)
+    symbol = '%s_var_%s' % (PREFIX, name)
+    defs.var[name] = Var(name, vartype, symbol)
+
+def compile_statement(func, out, line_no, c_indent):
+    if func == 'rewind':
+        out.write('%sgoto start;\n' % c_indent)
+    elif func == 'stop':
+        out.write('%sgoto stop;\n' % c_indent)
+    else:
+        fatal("Unknown statement '%s'" % func, line_no)
+
+def compile_colonexpr(func,
+                      args,
+                      defs,
+                      lines,
+                      level,
+                      out,
+                      line_no,
+                      c_indent,
+                      prev_if,
+                      indent_size):
+    if func != 'else':
+        is_if = True
+        compile_conditional(func, args, defs, out, line_no, c_indent)
+    elif prev_if:
+        is_if = False
+        out.write('%selse' % c_indent)
+    else:
+        fatal("Misplaced 'else'", line_no)
+    out.write('\n%s{\n' % c_indent)
+    compile_block(lines, out, defs, level + 1, indent_size)
+    out.write('\n%s}\n' % c_indent)
+    return is_if
+
+def compile_block(lines, out, defs, level, indent_size):
+    prev_if = False
+    for line_no, indent, func, args, colon in lines:
+        if level * indent_size > len(indent):
+            lines.undo()
+            return
+        elif level * indent_size != len(indent):
+            fatal('Unexpected indent', line_no)
+
+        if func in TOP_LEVEL:
+            fatal("Statement '%s' is only allowed at the top level" % func,
+                  line_no)
+
+        c_indent = C_INDENT * level
+        if colon:
+            prev_if = compile_colonexpr(func,
+                                        args,
+                                        defs,
+                                        lines,
+                                        level,
+                                        out,
+                                        line_no,
+                                        c_indent,
+                                        prev_if,
+                                        indent_size)
+        elif func in STATEMENTS:
+            compile_statement(func, out, line_no, c_indent)
+        else:
+            compile_func(func, args, defs, out, line_no, c_indent)
+            out.write(';\n')
+
+def compile_top(lines, defs, indent_size, begin_out, end_out, body_out):
+    first_expr = True
+    has_ended = False
+    prev_if = False
+    for line_no, indent, func, args, colon in lines:
+        if indent:
+            fatal('Unexpected indent', line_no)
+        elif has_ended:
+            fatal("'end' must be the last clause", line_no)
+        elif func == 'begin':
+            if first_expr:
+                begin_out.write('\n{ /* begin */\n')
+                compile_block(lines, begin_out, defs, 1, indent_size)
+                begin_out.write('}\n')
+            else:
+                fatal("'begin' must be the first clause", line_no)
+        elif func == 'end':
+            has_ended = True
+            end_out.write('\n{ /* end */\n')
+            compile_block(lines, end_out, defs, 1, indent_size)
+            end_out.write('}\n')
+        elif func == 'var':
+            parse_var(args, defs, line_no)
+        elif colon:
+            first_expr = False
+            prev_if = compile_colonexpr(func,
+                                        args,
+                                        defs,
+                                        lines,
+                                        0,
+                                        body_out,
+                                        line_no,
+                                        '',
+                                        prev_if,
+                                        indent_size)
+        else:
+            fatal("Unexpected top-level expression", line_no)
+
+def tokenize(src):
+    for line_no, line in enumerate(src):
+        indent, cmnt, func, args = LINE_RE.match(line.rstrip()).groups()
+        if cmnt or not line.strip():
+            continue
+        if not func:
+            fatal("Invalid expression", line_no + 1)
+        if args and args[-1] == ':':
+            colon = True
+            args = args[:-1]
+        else:
+            colon = False
+        yield line_no + 1, indent, func, args, colon
+
+def find_indent_size(lines):
+    for line_no, indent, func, args, colon in lines:
+        if indent:
+            return len(indent)
+    return 0
+
+def find_functions(lib, libsrc):
+    for name in FUNC_RE.findall(libsrc):
+        func = Func(name, lib)
+        yield name, func
+
+def open_lib(lib):
+    if not lib.endswith('.c'):
+        lib += '.c'
+    paths = [os.environ.get('REELPATH', '.'), os.path.dirname(__file__)]
+    for path in paths:
+        try:
+            return open(os.path.join(path, lib)).read()
+        except:
+            pass
+    fatal("Could not find extension '%s'" % lib, 0)
+
+def compile_enums(deflist, out):
+    for defname, syms in deflist:
+        out.write('\ntypedef enum {\n%s' % C_INDENT)
+        out.write((',\n%s' % C_INDENT).join(s.symbol for s in syms.values()))
+        out.write('\n} %s_%s;\n' % (PREFIX, defname))
+
+def compile_ctx(defs, out):
+    tmpl = """
+struct _{prefix}_ctx {{
+{i}reel_var vars[{num_var}];
+{i}tdb_item item_literals[{num_itemlit}];
+{i}tdb_field fields[{num_field}];
+
+{i}void *funcstate[{func_index}];
+{i}tdb *db;
+{i}uint64_t trail_id;
+}};
+"""
+    out.write(tmpl.format(prefix=PREFIX,
+                          i=C_INDENT,
+                          num_var=len(defs.var),
+                          num_itemlit=len(defs.itemlit),
+                          num_field=len(defs.field),
+                          func_index=defs.func_index[0]))
+
+def compile_new(defs, out):
+    ctx = '%s_ctx' % PREFIX
+    head = """
+{ctx} *{prefix}_new(tdb *db)
+{{
+{i}{ctx} *ctx = calloc(1, sizeof({ctx}));
+{i}if (!ctx)
+{i}{i}return NULL;
+"""
+    out.write(head.format(prefix=PREFIX, ctx=ctx, i=C_INDENT))
+
+    out.write('\n%s/* initialize variables */\n' % C_INDENT)
+    for var in defs.var.itervalues():
+        out.write('%sctx->vars[%s] = (reel_var){REEL_%s, "%s", 0};\n' %\
+                  (C_INDENT, var.symbol, var.type.upper(), var.name))
+
+    out.write('\n%s/* initialize item literals */\n' % C_INDENT)
+    for lit in defs.itemlit.itervalues():
+        val = lit.value.replace('"', '\\"')
+        out.write('%sctx->item_literals[%s] = '\
+                  'reel_resolve_item_literal(db, "%s", "%s");\n' %\
+                  (C_INDENT, lit.symbol, lit.field, val))
+
+    out.write('\n%s/* initialize fields */\n' % C_INDENT)
+    for field in defs.field.itervalues():
+        out.write('%sctx->fields[%s] = reel_resolve_field(db, "%s");\n' %\
+                  (C_INDENT, field.symbol, field.field))
+
+    # TODO: initialize funcstates
+
+    out.write('\n%sreturn ctx;\n}\n' % C_INDENT)
+
+def compile_utils(defs, out):
+    tmpl = """
+reel_var *{prefix}_get_vars({prefix}_ctx *ctx, uint32_t *num_vars)
+{{
+{i}*num_vars = sizeof(ctx->vars) / sizeof(reel_var);
+{i}return ctx->vars;
+}}
+
+void {prefix}_free({prefix}_ctx *ctx)
+{{
+{i}free(ctx);
+}}
+"""
+    out.write(tmpl.format(prefix=PREFIX, i=C_INDENT))
+
+def reindent(src, indent):
+    return re.sub('^', indent, src, flags=re.MULTILINE)
+
+def compile_eval(begin_out, end_out, body_out, out, use_array=False):
+    if use_array:
+        tmpl = """
+int {prefix}_eval_trail({prefix}_ctx *ctx, const tdb_event **events, uint64_t num_events)
+{{
+{i}const tdb_event *ev = NULL;
+{i}uint64_t evidx;
+{i}int ret = 0;
+{begin}
+start:
+{i}for (evidx=0; evidx < num_events; evidx++){{
+{i}{i}ev = events[evidx];
+{body}
+{i}}}
+stop:
+{i}ev = NULL;
+{end}
+{i}return ret;
+}}
+"""
+    else:
+        tmpl = """
+int {prefix}_eval_trail({prefix}_ctx *ctx, tdb_cursor *cursor, uint64_t trail_id)
+{{
+{i}const tdb_event *ev;
+{i}ctx->trail_id = trail_id;
+{i}int ret = 0;
+{begin}
+start:
+{i}if (tdb_get_trail(cursor, trail_id))
+{i}{i}return -1;
+{i}while ((ev = tdb_cursor_next(cursor))) {{
+{body}
+{i}}}
+stop:
+{i}ev = NULL;
+{end}
+{i}return ret;
+}}
+"""
+    out.write(tmpl.format(prefix=PREFIX,
+                          i=C_INDENT,
+                          begin=reindent(begin_out.getvalue(), C_INDENT),
+                          end=reindent(end_out.getvalue(), C_INDENT),
+                          body=reindent(body_out.getvalue(), C_INDENT * 2)))
+
+def compile_header(out, enum_out, use_array=False):
+    tmpl = """
+#ifndef {prefix}_HEADER
+#define {prefix}_HEADER
+
+#include <stdint.h>
+#include <traildb.h>
+#include <reel.h>
+
+{enum}
+
+typedef struct _{prefix}_ctx {prefix}_ctx;
+
+{prefix}_ctx *{prefix}_new(tdb *db);
+
+void {prefix}_free({prefix}_ctx *ctx);
+
+reel_var *{prefix}_get_vars({prefix}_ctx *ctx, uint32_t *num_vars);
+
+{eval}
+
+#endif /* {prefix}_HEADER */
+"""
+    if use_array:
+        evaldef = "int {prefix}_eval_trail({prefix}_ctx *ctx, const tdb_event **events, uint64_t num_events);".format(prefix=PREFIX)
+    else:
+        evaldef = "int {prefix}_eval_trail({prefix}_ctx *ctx, tdb_cursor *cursor, uint64_t trail_id);".format(prefix=PREFIX)
+
+    out.write(tmpl.format(prefix=PREFIX, eval=evaldef, enum=enum_out))
+
+def compile(src_path, libs=[], **kwargs):
+
+    out = cStringIO.StringIO()
+    header_out = cStringIO.StringIO()
+
+    out.write('#include <%s.h>\n\n' % PREFIX)
+    out.write('typedef struct _%s_ctx reel_ctx;\n' % PREFIX)
+
+    defs = Defs(func={}, var={}, itemlit={}, field={}, func_index=[0])
+    for lib in chain(STDLIB, libs):
+        libsrc = open_lib(lib)
+        out.write('/* include %s */\n' % lib)
+        out.write(libsrc)
+        out.write('\n')
+        defs.func.update(find_functions(lib, libsrc))
+
+    out.write('/* generate %s */\n' % src_path)
+    lines = list(tokenize(open(src_path)))
+    indent_size = find_indent_size(lines)
+
+    enum_out = cStringIO.StringIO()
+    begin_out = cStringIO.StringIO()
+    end_out = cStringIO.StringIO()
+    body_out = cStringIO.StringIO()
+
+    compile_top(UndoableIterator(iter(lines)),
+                defs,
+                indent_size,
+                begin_out,
+                end_out,
+                body_out)
+
+    compile_enums([('item_literals', defs.itemlit),
+                   ('fields', defs.field)], out)
+    compile_enums([('vars', defs.var)], enum_out)
+    compile_ctx(defs, out)
+    compile_new(defs, out)
+    compile_utils(defs, out)
+    compile_eval(begin_out, end_out, body_out, out, **kwargs)
+
+    compile_header(header_out, enum_out.getvalue(), **kwargs)
+
+    return out.getvalue(), header_out.getvalue()
+
+csrc, header = compile(sys.argv[1], use_array=True)
+print csrc
+#open('reel_test.c', 'w').write(csrc)
+#open('reel_test.h', 'w').write(header)
