@@ -90,3 +90,24 @@ const char *reel_error_str(reel_error error)
     };
     return "Unknown error";
 }
+
+const char *reel_parse_error_str(reel_parse_error error)
+{
+    switch (error){
+        case REEL_PARSE_OK:
+            return "Parsing ok";
+        case REEL_PARSE_UNKNOWN_VARIABLE:
+            return "Unknown variable";
+        case REEL_PARSE_INVALID_VALUE:
+            return "Malformed value";
+        case REEL_PARSE_UNKNOWN_FIELD:
+            return "Unknown field";
+        case REEL_PARSE_EMPTY_TABLE:
+            return "Table is empty (unknown field)";
+        case REEL_PARSE_VALUE_UNKNOWN:
+            return "Unknown value was set to nil";
+        case REEL_PARSE_SOME_VALUES_UNKNOWN:
+            return "Some unknown values were not set in the table";
+    }
+    return "Unknown error";
+}

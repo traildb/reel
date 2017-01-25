@@ -17,6 +17,8 @@ const tdb_event **reel_event_buffer_fill(reel_event_buffer *buf,
                                          tdb_cursor *cursor,
                                          uint64_t *num_events);
 
+const char *reel_parse_error_str(reel_parse_error error);
+
 const char *reel_error_str(reel_error error);
 
 #endif /* REEL_UTIL_H */

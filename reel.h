@@ -18,6 +18,16 @@ typedef enum {
     REEL_TABLE_MISMATCH = -200
 } reel_error;
 
+typedef enum {
+    REEL_PARSE_OK = 0,
+    REEL_PARSE_UNKNOWN_VARIABLE = -1,
+    REEL_PARSE_INVALID_VALUE = -2,
+    REEL_PARSE_UNKNOWN_FIELD = 1,
+    REEL_PARSE_EMPTY_TABLE = 2,
+    REEL_PARSE_VALUE_UNKNOWN = 3,
+    REEL_PARSE_SOME_VALUES_UNKNOWN = 4
+} reel_parse_error;
+
 typedef struct {
     reel_var_type type;
     const char *name;

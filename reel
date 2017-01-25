@@ -441,7 +441,7 @@ def compile_new(defs, out):
             out.write('%sctx->vars[%s] = '\
                       '(reel_var){REEL_%sTABLE, "%s", 0};\n' %\
                       (C_INDENT, var.symbol, var.table_type.upper(), var.name))
-            out.write('%sif (!reel_init_table(&ctx->vars[%s], db, "%s")) '\
+            out.write('%sif (reel_init_table(&ctx->vars[%s], db, "%s")) '\
                       'goto error;\n' %\
                       (C_INDENT, var.symbol, var.table_field))
 
@@ -496,6 +496,11 @@ int {prefix}_get_forks(const {prefix}_ctx *ctx, {prefix}_ctx **ctxs, uint64_t *n
 char *{prefix}_output_csv(const {prefix}_ctx *ctx, char delimiter)
 {{
 {i}return reel_output_csv(ctx, delimiter);
+}}
+
+reel_parse_error {prefix}_parse_var({prefix}_ctx *ctx, const char *var_name, const char *value)
+{{
+{i}return reel_parse_var(ctx, var_name, value);
 }}
 """
     out.write(tmpl.format(prefix=PREFIX, i=C_INDENT))
@@ -573,6 +578,8 @@ reel_var *{prefix}_get_vars({prefix}_ctx *ctx, uint32_t *num_vars);
 int {prefix}_get_forks(const {prefix}_ctx *ctx, {prefix}_ctx **ctxs, uint64_t *num_ctxs, uint64_t *ctxs_size);
 
 char *{prefix}_output_csv(const {prefix}_ctx *ctx, char delimiter);
+
+reel_parse_error {prefix}_parse_var({prefix}_ctx *ctx, const char *var_name, const char *value);
 
 {eval}
 

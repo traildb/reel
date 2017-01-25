@@ -5,12 +5,118 @@
 #include <string.h>
 #include <stdarg.h>
 #include <ctype.h>
+#include <errno.h>
+
+#include <traildb.h>
 
 #define CSV_BUFFER_SIZE 100000
 
-static reel_error reel_parse_var(reel_ctx *ctx, const char *var_name, const char *value)
+static reel_parse_error reel_parse_uint(uint64_t *dst, const char *src)
 {
+    char *end;
+    errno = 0;
+    *dst = strtoull(src, &end, 10);
+    if (errno || *end)
+        return REEL_PARSE_INVALID_VALUE;
+    return 0;
+}
 
+static reel_parse_error reel_parse_item(const tdb *db,
+                                        tdb_item *dst,
+                                        const char *src)
+{
+    char *val;
+    tdb_field field;
+
+    *dst = 0;
+    if (src[0] != '$')
+        return REEL_PARSE_INVALID_VALUE;
+    if (!(val = strchr(src, '=')))
+        return REEL_PARSE_INVALID_VALUE;
+    *val = 0;
+    ++val;
+    if (tdb_get_field(db, &src[1], &field))
+        return REEL_PARSE_UNKNOWN_FIELD;
+    if (val[0] == '\'' || val[0] == '"'){
+        size_t len = strlen(val);
+        if (val[0] != val[len - 1])
+            return REEL_PARSE_INVALID_VALUE;
+        else{
+            val = &val[1];
+            val[len - 1] = 0;
+        }
+    }
+    if (!(*dst = tdb_get_item(db, field, val, strlen(val))))
+        return REEL_PARSE_VALUE_UNKNOWN;
+    else
+        return 0;
+}
+
+static reel_parse_error reel_parse_uinttable(const tdb *db,
+                                             reel_var *var,
+                                             const char *src)
+{
+    char *key;
+    uint64_t val;
+    int n;
+    tdb_item item;
+    uint64_t *table = (uint64_t*)var->value;
+    reel_parse_error err = 0;
+
+    if (!var->table_field)
+        return REEL_PARSE_EMPTY_TABLE;
+
+    while (1){
+        int r;
+        switch ((r = sscanf(src, "%ms %lu%n", &key, &val, &n))){
+            case EOF:
+                return 0;
+            case 2:
+                item = tdb_get_item(db, var->table_field, key, strlen(key));
+                if (item)
+                    table[tdb_item_val(item)] = val;
+                else
+                    err = REEL_PARSE_SOME_VALUES_UNKNOWN;
+                free(key);
+                src += n;
+                break;
+            default:
+                return REEL_PARSE_INVALID_VALUE;
+        }
+    }
+    return err;
+}
+
+static reel_parse_error reel_parse_var(reel_ctx *ctx,
+                                       const char *var_name,
+                                       const char *value)
+{
+    reel_var *var = NULL;
+    reel_parse_error ret;
+    uint64_t i;
+
+    for (i = 0; i < sizeof(ctx->vars) / sizeof(reel_var); i++)
+        if (!strcmp(ctx->vars[i].name, var_name)){
+            var = &ctx->vars[i];
+            break;
+        }
+    if (!var)
+        return REEL_PARSE_UNKNOWN_VARIABLE;
+    switch (var->type) {
+        case REEL_UINT:
+            if ((ret = reel_parse_uint(&var->value, value)))
+                return ret;
+            break;
+        case REEL_ITEM:
+            if ((ret = reel_parse_item(ctx->db, &var->value, value)))
+                return ret;
+            break;
+        case REEL_UINTTABLE:
+            if ((ret = reel_parse_uinttable(ctx->db, var, value)))
+                return ret;
+            break;
+    }
+    return 0;
 }
 
 static char *reel_str_append(char *buf,
