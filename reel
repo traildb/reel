@@ -25,7 +25,7 @@ FUNCS = {'send', 'fork'}
 RESERVED = TOP_LEVEL | TYPES | STATEMENTS | FUNCS | {'not', 'and', 'or', 'else'}
 
 # config
-PREFIX = 'reel_cod'
+PREFIX = 'reel_script'
 C_INDENT = '  '
 
 # lexer
@@ -37,7 +37,7 @@ TABLEITEM_RE = re.compile('([a-zA-Z0-9_]+)\[(\$?[a-zA-Z0-9_]+)\]')
 FUNC_RE = re.compile('\s(reelfunc_[a-zA-Z0-9_]+)\s*\(')
 
 # default set of functions
-STDLIB = ['reel_std.c']
+STDLIB = ['reel_std.c', 'reel_io.c']
 
 class UndoableIterator(object):
     def __init__(self, itr):
@@ -213,7 +213,6 @@ def parse_var(args, defs, line_no):
     try:
         name, vartype, keytype, valtype = VAR_RE.match(args.strip()).groups()
     except:
-        raise
         fatal("Invalid variable definition", line_no)
     if name in RESERVED:
         fatal("Variable name '%s' is reserved" % name, line_no)
@@ -390,9 +389,10 @@ def compile_enums(deflist, out, keyfun=None):
             lst = [s.symbol for s in sorted(syms.values(), key=keyfun)]
         else:
             lst = [s.symbol for s in syms.values()]
-        out.write('\ntypedef enum {\n%s' % C_INDENT)
-        out.write((',\n%s' % C_INDENT).join(lst))
-        out.write('\n} %s_%s;\n' % (PREFIX, defname))
+        if lst:
+            out.write('\ntypedef enum {\n%s' % C_INDENT)
+            out.write((',\n%s' % C_INDENT).join(lst))
+            out.write('\n} %s_%s;\n' % (PREFIX, defname))
 
 def compile_ctx(defs, out):
     tmpl = """
@@ -410,7 +410,7 @@ struct _{prefix}_ctx {{
 {i}Pvoid_t child_contexts;
 {i}Pvoid_t evaluated_contexts;
 {i}
-{i}int error;
+{i}reel_error error;
 }};
 typedef struct _{prefix}_ctx reel_ctx;
 """
@@ -431,6 +431,7 @@ def compile_new(defs, out):
 {i}if (!ctx)
 {i}{i}return NULL;
 {i}ctx->root = ctx;
+{i}ctx->db = db;
 """
     out.write(head.format(prefix=PREFIX, ctx=ctx, i=C_INDENT))
 
@@ -491,6 +492,11 @@ int {prefix}_get_forks(const {prefix}_ctx *ctx, {prefix}_ctx **ctxs, uint64_t *n
 {{
 {i}return reel_get_forks(ctx, ctxs, num_ctxs, ctxs_size);
 }}
+
+char *{prefix}_output_csv(const {prefix}_ctx *ctx, char delimiter)
+{{
+{i}return reel_output_csv(ctx, delimiter);
+}}
 """
     out.write(tmpl.format(prefix=PREFIX, i=C_INDENT))
 
@@ -500,7 +506,7 @@ def reindent(src, indent):
 def compile_eval(begin_out, end_out, body_out, out, use_array=False):
     if use_array:
         tmpl = """
-int {prefix}_eval_trail({prefix}_ctx *ctx, const tdb_event **events, uint64_t num_events)
+reel_error {prefix}_eval_trail({prefix}_ctx *ctx, const tdb_event **events, uint64_t num_events)
 {{
 {i}const tdb_event *ev = NULL;
 {i}uint64_t evidx;
@@ -566,14 +572,16 @@ reel_var *{prefix}_get_vars({prefix}_ctx *ctx, uint32_t *num_vars);
 
 int {prefix}_get_forks(const {prefix}_ctx *ctx, {prefix}_ctx **ctxs, uint64_t *num_ctxs, uint64_t *ctxs_size);
 
+char *{prefix}_output_csv(const {prefix}_ctx *ctx, char delimiter);
+
 {eval}
 
 #endif /* {prefix}_HEADER */
 """
     if use_array:
-        evaldef = "int {prefix}_eval_trail({prefix}_ctx *ctx, const tdb_event **events, uint64_t num_events);".format(prefix=PREFIX)
+        evaldef = "reel_error {prefix}_eval_trail({prefix}_ctx *ctx, const tdb_event **events, uint64_t num_events);".format(prefix=PREFIX)
     else:
-        evaldef = "int {prefix}_eval_trail({prefix}_ctx *ctx, tdb_cursor *cursor, uint64_t trail_id);".format(prefix=PREFIX)
+        evaldef = "reel_error {prefix}_eval_trail({prefix}_ctx *ctx, tdb_cursor *cursor, uint64_t trail_id);".format(prefix=PREFIX)
 
     out.write(tmpl.format(prefix=PREFIX, eval=evaldef, enum=enum_out))
 
@@ -627,5 +635,5 @@ def compile(src_path, libs=[], **kwargs):
 csrc, header = compile(sys.argv[1], use_array=True)
 print header
 print csrc
-open('reel_test.c', 'w').write(csrc)
-open('reel_test.h', 'w').write(header)
+open('reel_script.c', 'w').write(csrc)
+open('reel_script.h', 'w').write(header)

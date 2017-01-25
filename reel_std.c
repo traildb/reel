@@ -103,6 +103,10 @@ static inline int reelfunc_if_itemptr_item(reel_ctx *ctx, const tdb_event *ev, u
     return *lval == rval;
 }
 
+static inline int reelfunc_if_item_item(reel_ctx *ctx, const tdb_event *ev, uint32_t func_idx, tdb_item lval, tdb_item rval){
+    return lval == rval;
+}
+
 static inline int reelfunc_if_uint(reel_ctx *ctx, const tdb_event *ev, uint32_t func_idx, uint64_t val){
     return val != 0;
 }
@@ -163,14 +167,14 @@ static int reel_fork(reel_ctx *ctx, Word_t key)
         JLI(ptr, ctx->root->child_contexts, key);
         if (!*ptr){
             reel_ctx *child = malloc(sizeof(reel_ctx));
-            if (child){
-                ctx->error = REEL_OUT_OF_MEMORY;
+            if (!child){
+                ctx->error = REEL_FORK_FAILED;
                 return 0;
             }
             memcpy(child, ctx, sizeof(reel_ctx));
             child->child_contexts = NULL;
             child->evaluated_contexts = NULL;
-            *ptr = (Word_t)*ptr;
+            *ptr = (Word_t)child;
         }
         ctx->child = (reel_ctx*)*ptr;
         return 1;
