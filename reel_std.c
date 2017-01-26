@@ -125,11 +125,12 @@ static inline int reelfunc_if_uintptr_uint(reel_ctx *ctx, const tdb_event *ev, u
 
 /* within_time */
 
-static inline int reelfunc_within_time_uintptr_uint(reel_ctx *ctx, const tdb_event *ev, uint32_t func_idx, uint64_t *lval, uint64_t rval){
-    if (*lval < ev->timestamp)
-        return 0;
-    else
-        return *lval - ev->timestamp < rval;
+static inline int reelfunc_time_after_uintptr_uint(reel_ctx *ctx, const tdb_event *ev, uint32_t func_idx, uint64_t *lval, uint64_t rval){
+    return ev->timestamp >= *lval + rval;
+}
+
+static inline int reelfunc_time_after_uintptr(reel_ctx *ctx, const tdb_event *ev, uint32_t func_idx, uint64_t *val){
+    return ev->timestamp >= *val;
 }
 
 /* if_greater */
@@ -137,6 +138,33 @@ static inline int reelfunc_within_time_uintptr_uint(reel_ctx *ctx, const tdb_eve
 static inline int reelfunc_if_greater_uint_uintptr(reel_ctx *ctx, const tdb_event *ev, uint32_t func_idx, uint64_t lval, uint64_t *rval){
     return lval > *rval;
 }
+
+static inline int reelfunc_if_greater_uintptr_uint(reel_ctx *ctx, const tdb_event *ev, uint32_t func_idx, uint64_t *lval, uint64_t rval){
+    return *lval > rval;
+}
+
+static inline int reelfunc_if_greater_or_equal_uint_uintptr(reel_ctx *ctx, const tdb_event *ev, uint32_t func_idx, uint64_t lval, uint64_t *rval){
+    return lval >= *rval;
+}
+
+static inline int reelfunc_if_greater_or_equal_uintptr_uint(reel_ctx *ctx, const tdb_event *ev, uint32_t func_idx, uint64_t *lval, uint64_t rval){
+    return *lval >= rval;
+}
+
+/* print */
+
+static inline void reelfunc_print_uintptr(reel_ctx *ctx, const tdb_event *ev, uint32_t func_idx, uint64_t *val){
+    fprintf(stderr, "debug %llu\n", *val);
+}
+
+static inline void reelfunc_print_itemptr(reel_ctx *ctx, const tdb_event *ev, uint32_t func_idx, uint64_t *val){
+    fprintf(stderr, "debug %llu\n", *val);
+}
+
+static inline void reelfunc_print_item(reel_ctx *ctx, const tdb_event *ev, uint32_t func_idx, uint64_t val){
+    fprintf(stderr, "debug %llu\n", val);
+}
+
 
 /* tables */
 
