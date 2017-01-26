@@ -10,6 +10,7 @@
 #include <traildb.h>
 
 #define CSV_BUFFER_SIZE 100000
+#define MAX_NON_INDEX_SIZE 1000
 
 static reel_parse_error reel_parse_uint(uint64_t *dst, const char *src)
 {
@@ -52,38 +53,70 @@ static reel_parse_error reel_parse_item(const tdb *db,
         return 0;
 }
 
+static Pvoid_t create_index(const tdb *db, tdb_field field)
+{
+    uint64_t i, len;
+    Pvoid_t index = NULL;
+    for (i = 0; i < tdb_lexicon_size(db, field); i++){
+        const char *val = tdb_get_value(db, field, i, &len);
+        Word_t *ptr;
+        JHSI(ptr, index, (char*)val, len);
+        *ptr = tdb_make_item(field, i);
+    }
+    return index;
+}
+
 static reel_parse_error reel_parse_uinttable(const tdb *db,
                                              reel_var *var,
                                              const char *src)
 {
-    char *key;
-    uint64_t val;
-    int n;
     tdb_item item;
-    uint64_t *table = (uint64_t*)var->value;
     reel_parse_error err = 0;
+    uint64_t len, size = strlen(src);
+    const char *end = src + size;
+    uint64_t *table = (uint64_t*)var->value;
+    char *val;
+
+    Pvoid_t index = NULL;
+    Word_t tmp;
 
     if (!var->table_field)
         return REEL_PARSE_EMPTY_TABLE;
 
-    while (1){
-        int r;
-        switch ((r = sscanf(src, "%ms %lu%n", &key, &val, &n))){
-            case EOF:
-                return 0;
-            case 2:
-                item = tdb_get_item(db, var->table_field, key, strlen(key));
-                if (item)
-                    table[tdb_item_val(item)] = val;
-                else
-                    err = REEL_PARSE_SOME_VALUES_UNKNOWN;
-                free(key);
-                src += n;
-                break;
-            default:
+    if (size > MAX_NON_INDEX_SIZE)
+        index = create_index(db, var->table_field);
+
+    while (src < end){
+
+        if (!(val = strchr(src, ' ')))
+            return REEL_PARSE_INVALID_VALUE;
+
+        len = val - src;
+
+        if (index){
+            Word_t *ptr;
+            JHSG(ptr, index, (char*)src, len);
+            if (ptr)
+                item = *ptr;
+            else
+                item = 0;
+        }else
+            item = tdb_get_item(db, var->table_field, src, len);
+        if (item){
+            char *p;
+            uint64_t uint = strtoull(val, &p, 10);
+            if (*p != '\n')
                 return REEL_PARSE_INVALID_VALUE;
+            table[tdb_item_val(item)] = uint;
+            src = p + 1;
+        }else{
+            if (!(src = strchr(val, '\n')))
+                return REEL_PARSE_INVALID_VALUE;
+            ++src;
+            err = REEL_PARSE_SOME_VALUES_UNKNOWN;
         }
     }
+    JHSFA(tmp, index);
     return err;
 }
 
