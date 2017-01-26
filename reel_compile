@@ -154,6 +154,8 @@ def compile_func(func, args, defs, out, line_no, c_indent, is_if, has_fork):
             parsed = arg_item(arg, defs)
         elif NUMBER_RE.match(arg):
             parsed = arg_uintliteral(arg)
+        elif arg == '_EC':
+            parsed = [('evidx', 'uint')]
         elif arg in defs.var:
             parsed = arg_var(arg, defs, prefix)
         else:
