@@ -10,7 +10,13 @@ from collections import namedtuple
 # definitions
 Defs = namedtuple('Defs', ('var', 'func', 'itemlit', 'field', 'func_index'))
 Func = namedtuple('Func', ('name', 'srcfile'))
-Var = namedtuple('Var', ('name', 'type', 'symbol', 'table_field', 'table_type', 'index'))
+Var = namedtuple('Var', ('name',
+                         'type',
+                         'symbol',
+                         'table_field',
+                         'table_type',
+                         'is_const',
+                         'index'))
 Itemlit = namedtuple('Itemlit', ('field', 'value', 'symbol'))
 Field = namedtuple('Field', ('field', 'symbol'))
 
@@ -22,7 +28,11 @@ TABLE_VALUE_TYPES = {'string', 'uint'}
 TOP_LEVEL = {'var', 'begin', 'end'}
 STATEMENTS = {'rewind', 'stop', 'next'}
 FUNCS = {'send', 'fork'}
-RESERVED = TOP_LEVEL | TYPES | STATEMENTS | FUNCS | {'not', 'and', 'or', 'else'}
+RESERVED = TOP_LEVEL |\
+           TYPES |\
+           STATEMENTS |\
+           FUNCS |\
+           {'not', 'and', 'or', 'else', 'const'}
 
 # config
 PREFIX = 'reel_script'
@@ -31,7 +41,7 @@ C_INDENT = '  '
 # lexer
 LINE_RE = re.compile('([ ]*)(#?)([a-zA-Z0-9_]*)(.*)')
 VAR_RE = re.compile('([a-zA-Z_][a-zA-Z0-9_]*) '\
-                    '([a-z]+):?([a-zA-Z0-9$_]+)?[\->]*([a-z]+)?')
+                    '([a-z]+):?([a-zA-Z0-9$_]+)?[\->]*([a-z]+)?( const)?')
 NUMBER_RE = re.compile('[0-9]+')
 TABLEITEM_RE = re.compile('([a-zA-Z0-9_]+)\[(\$?[a-zA-Z0-9_]+)\]')
 FUNC_RE = re.compile('\s(reelfunc_[a-zA-Z0-9_]+)\s*\(')
@@ -211,7 +221,8 @@ def compile_conditional(func, args, defs, out, line_no, c_indent):
 
 def parse_var(args, defs, line_no):
     try:
-        name, vartype, keytype, valtype = VAR_RE.match(args.strip()).groups()
+        a = args.strip()
+        name, vartype, keytype, valtype, is_const = VAR_RE.match(a).groups()
     except:
         fatal("Invalid variable definition", line_no)
     if name in RESERVED:
@@ -230,7 +241,13 @@ def parse_var(args, defs, line_no):
 
     index = len(defs.var)
     symbol = '%s_var_%s' % (PREFIX, name)
-    defs.var[name] = Var(name, vartype, symbol, keytype, valtype, len(defs.var))
+    defs.var[name] = Var(name,
+                         vartype,
+                         symbol,
+                         keytype,
+                         valtype,
+                         bool(is_const),
+                         len(defs.var))
 
 def compile_statement(func, out, line_no, c_indent):
     if func == 'rewind':
@@ -438,9 +455,14 @@ def compile_new(defs, out):
     out.write('\n%s/* initialize tables */\n' % C_INDENT)
     for var in defs.var.itervalues():
         if var.type == 'table':
-            out.write('%sctx->vars[%s] = '\
-                      '(reel_var){REEL_%sTABLE, "%s", 0};\n' %\
-                      (C_INDENT, var.symbol, var.table_type.upper(), var.name))
+            out.write('%sctx->vars[%s] = (reel_var)'\
+                      '{REEL_%sTABLE, "%s", 0, 0, 0, REEL_%s, %d};\n' %\
+                      (C_INDENT,
+                       var.symbol,
+                       var.table_type.upper(),
+                       var.name,
+                       var.table_type.upper(),
+                       int(var.is_const)))
             out.write('%sif (reel_init_table(&ctx->vars[%s], db, "%s")) '\
                       'goto error;\n' %\
                       (C_INDENT, var.symbol, var.table_field))
@@ -476,6 +498,7 @@ error:
     out.write(tail.format(i=C_INDENT))
 
 def compile_utils(defs, out):
+    # FIXME free children and copied tables
     tmpl = """
 reel_var *{prefix}_get_vars({prefix}_ctx *ctx, uint32_t *num_vars)
 {{

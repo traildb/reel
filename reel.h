@@ -28,6 +28,10 @@ typedef enum {
     REEL_PARSE_SOME_VALUES_UNKNOWN = 4
 } reel_parse_error;
 
+typedef enum {
+    REEL_FLAG_IS_CONST = 1
+} reel_flags;
+
 typedef struct {
     reel_var_type type;
     const char *name;
@@ -36,6 +40,8 @@ typedef struct {
     uint64_t table_length;
     tdb_field table_field;
     reel_var_type table_value_type;
+
+    uint64_t flags;
 } reel_var;
 
 #endif /* REEL_H */

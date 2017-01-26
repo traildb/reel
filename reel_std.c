@@ -88,11 +88,11 @@ static inline void reelfunc_unset_uintptr(reel_ctx *ctx, const tdb_event *ev, ui
 /* if */
 
 static inline int reelfunc_if_item(reel_ctx *ctx, const tdb_event *ev, uint32_t func_idx, tdb_item item){
-    return item != 0;
+    return tdb_item_val(item) != 0;
 }
 
 static inline int reelfunc_if_itemptr(reel_ctx *ctx, const tdb_event *ev, uint32_t func_idx, tdb_item *item){
-    return *item != 0;
+    return tdb_item_val(*item) != 0;
 }
 
 static inline int reelfunc_if_item_itemptr(reel_ctx *ctx, const tdb_event *ev, uint32_t func_idx, tdb_item lval, tdb_item *rval){
@@ -163,7 +163,9 @@ static int reel_fork(reel_ctx *ctx, Word_t key)
     if (!not_exists){
         return 0;
     }else{
+        uint64_t i;
         Word_t *ptr;
+
         JLI(ptr, ctx->root->child_contexts, key);
         if (!*ptr){
             reel_ctx *child = malloc(sizeof(reel_ctx));
@@ -175,6 +177,20 @@ static int reel_fork(reel_ctx *ctx, Word_t key)
             child->child_contexts = NULL;
             child->evaluated_contexts = NULL;
             *ptr = (Word_t)child;
+
+            for (i = 0; i < sizeof(ctx->vars) / sizeof(reel_var); i++){
+                reel_var *v = &ctx->vars[i];
+                if (v->table_field && !(v->flags & REEL_FLAG_IS_CONST)){
+                    char *p;
+                    uint64_t cpysize = v->table_length * sizeof(uintptr_t);
+                    if (!(p = malloc(cpysize))){
+                        ctx->error = REEL_FORK_FAILED;
+                        return 0;
+                    }
+                    memcpy(p, (uintptr_t*)v->value, cpysize);
+                    child->vars[i].value = (uintptr_t)p;
+                }
+            }
         }
         ctx->child = (reel_ctx*)*ptr;
         return 1;
