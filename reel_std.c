@@ -1,6 +1,16 @@
 
 #include <string.h>
 
+/* setpos */
+
+#define reelfunc_setpos_uintptr(ctx, ev, idx, val)\
+    if (*(val) < num_events) { evidx = *(val); goto loopstart; }\
+    else { return REEL_SETPOS_OUT_OF_BOUNDS; }
+
+#define reelfunc_setpos_uint(ctx, ev, idx, val)\
+    if (val < num_events) { evidx = val; goto loopstart; }\
+    else { return REEL_SETPOS_OUT_OF_BOUNDS; }
+
 /* inc */
 
 static inline void reelfunc_inc_uintptr_uint(reel_ctx *ctx, const tdb_event *ev, uint32_t func_idx, uint64_t *lval, uint64_t rval){
@@ -165,6 +175,9 @@ static inline void reelfunc_print_item(reel_ctx *ctx, const tdb_event *ev, uint3
     fprintf(stderr, "debug %llu\n", val);
 }
 
+static inline void reelfunc_print_uint(reel_ctx *ctx, const tdb_event *ev, uint32_t func_idx, uint64_t val){
+    fprintf(stderr, "debug %llu\n", val);
+}
 
 /* tables */
 

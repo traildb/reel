@@ -15,6 +15,7 @@ typedef enum {
 typedef enum {
     REEL_OUT_OF_MEMORY = -1,
     REEL_FORK_FAILED = -2,
+    REEL_SETPOS_OUT_OF_BOUNDS = 3,
     REEL_TABLE_MISMATCH = -200
 } reel_error;
 

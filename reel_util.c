@@ -110,6 +110,8 @@ const char *reel_error_str(reel_error error)
             return "Table mismatch";
         case REEL_FORK_FAILED:
             return "Fork failed";
+        case REEL_SETPOS_OUT_OF_BOUNDS:
+            return "Setpos out of bounds";
     };
     return "Unknown error";
 }

@@ -32,7 +32,7 @@ RESERVED = TOP_LEVEL |\
            TYPES |\
            STATEMENTS |\
            FUNCS |\
-           {'not', 'and', 'or', 'else', 'const'}
+           {'not', 'and', 'or', 'else', 'const', 'setpos'}
 
 # config
 PREFIX = 'reel_script'
@@ -154,7 +154,7 @@ def compile_func(func, args, defs, out, line_no, c_indent, is_if, has_fork):
             parsed = arg_item(arg, defs)
         elif NUMBER_RE.match(arg):
             parsed = arg_uintliteral(arg)
-        elif arg == '_EC':
+        elif arg == '_POS':
             parsed = [('evidx', 'uint')]
         elif arg in defs.var:
             parsed = arg_var(arg, defs, prefix)
@@ -546,6 +546,7 @@ reel_error {prefix}_eval_trail({prefix}_ctx *ctx, const tdb_event **events, uint
 {begin}
 start:
 {i}for (evidx=0; evidx < num_events; evidx++){{
+loopstart:
 {i}{i}ev = events[evidx];
 {body}
 {i}}}
