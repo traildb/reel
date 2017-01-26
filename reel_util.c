@@ -13,6 +13,8 @@
 struct _reel_event_buffer {
     char *buffer;
     uint64_t buffer_size;
+    uint64_t *offsets;
+    uint64_t offsets_size;
     const tdb_event **events;
     uint64_t events_size;
 };
@@ -23,12 +25,19 @@ reel_event_buffer *reel_event_buffer_new()
 
     if (!(buf = calloc(1, sizeof(reel_event_buffer))))
         return NULL;
+
     if (!(buf->buffer = malloc(INITIAL_BUFFER_SIZE)))
         goto error;
     buf->buffer_size = INITIAL_BUFFER_SIZE;
+
+    if (!(buf->offsets = malloc(INITIAL_EVENTS_SIZE * 8)))
+        goto error;
+    buf->offsets_size = INITIAL_EVENTS_SIZE;
+
     if (!(buf->events = malloc(INITIAL_EVENTS_SIZE * sizeof(tdb_event*))))
         goto error;
     buf->events_size = INITIAL_EVENTS_SIZE;
+
     return buf;
 error:
     reel_event_buffer_free(buf);
@@ -38,6 +47,7 @@ error:
 void reel_event_buffer_free(reel_event_buffer *buf)
 {
     free(buf->buffer);
+    free(buf->offsets);
     free(buf->events);
     free(buf);
 }
@@ -48,6 +58,7 @@ const tdb_event **reel_event_buffer_fill(reel_event_buffer *buf,
 {
     const tdb_event *e;
     uint64_t offset = 0;
+    uint64_t i = 0;
     char *p;
     *num_events = 0;
 
@@ -63,17 +74,29 @@ const tdb_event **reel_event_buffer_fill(reel_event_buffer *buf,
         }
 
         memcpy(&buf->buffer[offset], e, size);
-        buf->events[*num_events] = (const tdb_event*)&buf->buffer[offset];
+        buf->offsets[i++] = offset;
         offset += size;
 
-        if (++*num_events == buf->events_size){
-            buf->events_size *= 2;
-            if ((p = realloc(buf->events, buf->events_size * sizeof(tdb_event*))))
-                buf->events = (const tdb_event**)p;
+        if (i == buf->offsets_size){
+            buf->offsets_size *= 2;
+            if ((p = realloc(buf->offsets, buf->offsets_size * 8)))
+                buf->offsets = (uint64_t*)p;
             else
                 return NULL;
         }
     }
+
+    *num_events = i;
+    if (i > buf->events_size){
+        buf->events_size *= 2;
+        buf->events_size += i;
+        if ((p = realloc(buf->events, buf->events_size * sizeof(tdb_event*))))
+            buf->events = (const tdb_event**)p;
+        else
+            return NULL;
+    }
+    for (i = 0; i < *num_events; i++)
+        buf->events[i] = (const tdb_event*)&buf->buffer[buf->offsets[i]];
 
     return buf->events;
 }
