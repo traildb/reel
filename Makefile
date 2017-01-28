@@ -37,7 +37,7 @@ _build/reel_h.quot:        reel.h        _build ;        ./python_quote _REEL_H 
 _build/reel_util_h.quot:   reel_util.h   _build ;   ./python_quote _REEL_UTIL_H $< > $@
 
 
-test: _test _test/reel_compile _test/test.rl _test/trails-bug.tdb.tar build;
+test: _test _test/reel_compile _test/test.rl build;
 
 _test: $(sources) $(headers)
 	$(RM) -rf _test
