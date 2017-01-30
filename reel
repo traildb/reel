@@ -1,13 +1,13 @@
-#!/bin/bash
-set -e
+#!/bin/sh
+set -euf
 
-if [ -z $1 ]
+if [ -z "$1" ]
 then
     echo "Usage: ./reel reel_script.rl [options] traildb.tdb"
     exit 1
 fi
 
-if [ -z $TRAILDB ]
+if [ -z "$TRAILDB" ]
 then
     echo "Set TRAILDB to point at the root of the TrailDB repo"
     exit 1
@@ -17,18 +17,18 @@ SOURCE=$1
 shift
 
 rm -f reel_query reel_script.c reel_script.h
-./reel_compile $SOURCE
+./reel_compile "$SOURCE"
 gcc -o reel_query\
     -g\
     -O3\
     -Wall\
     -Wno-unused-label\
     -Wno-unused-function\
-    -L $TRAILDB/build\
+    -L "$TRAILDB"/build\
     -I .\
-    -I $TRAILDB/src/\
+    -I "$TRAILDB"/src/\
     reel_query.c reel_util.c reel_script.c\
     -ltraildb\
     -lJudy
 
-LD_LIBRARY_PATH=$TRAILDB/build ./reel_query $@
+LD_LIBRARY_PATH="$TRAILDB"/build ./reel_query "$@"
