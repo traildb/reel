@@ -32,6 +32,9 @@ static void evaluate(reel_script_ctx *ctx, tdb *db)
 
     for (trail_id = 0; trail_id < tdb_num_trails(db); trail_id++)
     {
+        //if (!(trail_id & 1023))
+        //    fprintf(stderr, "Processing trail %lu\n", trail_id);
+
         tdb_get_trail(cursor, trail_id);
 
         if (!(events = reel_event_buffer_fill(buf, cursor, &num_events))){
@@ -40,7 +43,6 @@ static void evaluate(reel_script_ctx *ctx, tdb *db)
                     trail_id);
             exit(1);
         }
-
         if ((err = reel_script_eval_trail(ctx, events, num_events))){
             fprintf(stderr,
                     "[trail %"PRIu64"] Script failed: %s\n",
