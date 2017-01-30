@@ -32,6 +32,30 @@ static inline void reelfunc_inc_tableptr_tableptr(reel_ctx *ctx, const tdb_event
     }
 }
 
+static inline void reelfunc_inc_tableitem_uint(reel_ctx *ctx, const tdb_event *ev, uint32_t func_idx, reel_var *lval, uint64_t rval){
+
+    if (lval->table_value_type != REEL_UINT){
+        ctx->error = REEL_TABLE_MISMATCH;
+    }else if (lval->table_field){
+        uint64_t *dst = (uint64_t*)lval->value;
+        dst[tdb_item_val(ev->items[lval->table_field - 1])] += rval;
+    }
+}
+
+static inline void reelfunc_inc_tableitem_tableitem(reel_ctx *ctx, const tdb_event *ev, uint32_t func_idx, reel_var *lval, reel_var *rval){
+
+    if (!(lval->table_value_type == REEL_UINT &&
+          rval->table_value_type == REEL_UINT &&
+          lval->table_field == rval->table_field))
+        ctx->error = REEL_TABLE_MISMATCH;
+    else if (lval->table_field){
+        const uint64_t *src = (const uint64_t*)rval->value;
+        uint64_t *dst = (uint64_t*)lval->value;
+        uint64_t idx = tdb_item_val(ev->items[lval->table_field - 1]);
+        dst[idx] += src[idx];
+    }
+}
+
 /* set */
 
 static inline void reelfunc_set_uintptr_uint(reel_ctx *ctx, const tdb_event *ev, uint32_t func_idx, uint64_t *lval, uint64_t rval){
@@ -133,10 +157,24 @@ static inline int reelfunc_if_uintptr_uint(reel_ctx *ctx, const tdb_event *ev, u
     return *lval == rval;
 }
 
-/* within_time */
+/* time_before */
+
+static inline int reelfunc_time_before_uintptr_uint(reel_ctx *ctx, const tdb_event *ev, uint32_t func_idx, uint64_t *lval, uint64_t rval){
+    return ev->timestamp <= *lval + rval;
+}
+
+static inline int reelfunc_time_before_uintptr_uintptr(reel_ctx *ctx, const tdb_event *ev, uint32_t func_idx, uint64_t *lval, uint64_t *rval){
+    return ev->timestamp <= *lval + *rval;
+}
+
+/* time_after */
 
 static inline int reelfunc_time_after_uintptr_uint(reel_ctx *ctx, const tdb_event *ev, uint32_t func_idx, uint64_t *lval, uint64_t rval){
     return ev->timestamp >= *lval + rval;
+}
+
+static inline int reelfunc_time_after_uintptr_uintptr(reel_ctx *ctx, const tdb_event *ev, uint32_t func_idx, uint64_t *lval, uint64_t *rval){
+    return ev->timestamp >= *lval + *rval;
 }
 
 static inline int reelfunc_time_after_uintptr(reel_ctx *ctx, const tdb_event *ev, uint32_t func_idx, uint64_t *val){
@@ -164,19 +202,19 @@ static inline int reelfunc_if_greater_or_equal_uintptr_uint(reel_ctx *ctx, const
 /* print */
 
 static inline void reelfunc_print_uintptr(reel_ctx *ctx, const tdb_event *ev, uint32_t func_idx, uint64_t *val){
-    fprintf(stderr, "debug %llu\n", *val);
+    fprintf(stderr, "debug %lu\n", *val);
 }
 
 static inline void reelfunc_print_itemptr(reel_ctx *ctx, const tdb_event *ev, uint32_t func_idx, uint64_t *val){
-    fprintf(stderr, "debug %llu\n", *val);
+    fprintf(stderr, "debug %lu\n", *val);
 }
 
 static inline void reelfunc_print_item(reel_ctx *ctx, const tdb_event *ev, uint32_t func_idx, uint64_t val){
-    fprintf(stderr, "debug %llu\n", val);
+    fprintf(stderr, "debug %lu\n", val);
 }
 
 static inline void reelfunc_print_uint(reel_ctx *ctx, const tdb_event *ev, uint32_t func_idx, uint64_t val){
-    fprintf(stderr, "debug %llu\n", val);
+    fprintf(stderr, "debug %lu\n", val);
 }
 
 /* tables */
@@ -221,16 +259,18 @@ static int reel_fork(reel_ctx *ctx, Word_t key)
 
             for (i = 0; i < sizeof(ctx->vars) / sizeof(reel_var); i++){
                 reel_var *v = &ctx->vars[i];
-                if (v->table_field && !(v->flags & REEL_FLAG_IS_CONST)){
-                    char *p;
-                    uint64_t cpysize = v->table_length * sizeof(uintptr_t);
-                    if (!(p = malloc(cpysize))){
-                        ctx->error = REEL_FORK_FAILED;
-                        return 0;
+                if (v->table_field){
+                    /* const tables are shared */
+                    if (!(v->flags & REEL_FLAG_IS_CONST)){
+                        char *p;
+                        if (!(p = calloc(v->table_length, sizeof(uintptr_t)))){
+                            ctx->error = REEL_FORK_FAILED;
+                            return 0;
+                        }
+                        child->vars[i].value = (uintptr_t)p;
                     }
-                    memcpy(p, (uintptr_t*)v->value, cpysize);
-                    child->vars[i].value = (uintptr_t)p;
-                }
+                }else
+                    child->vars[i].value = 0;
             }
         }
         ctx->child = (reel_ctx*)*ptr;
