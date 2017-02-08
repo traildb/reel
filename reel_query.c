@@ -1,62 +1,114 @@
 
-#include <stdlib.h>
-#include <stdio.h>
 #include <unistd.h>
 #include <getopt.h>
 #include <fcntl.h>
 #include <string.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <errno.h>
 
 #include <traildb.h>
 
 #include "reel_script.h"
 #include "reel_util.h"
+#include "thread_util.h"
 
-#define DIE(msg, ...)\
-    do { fprintf(stderr, msg"\n", ##__VA_ARGS__);   \
-         exit(EXIT_FAILURE); } while (0)
+static long num_threads;
 
-static void evaluate(reel_script_ctx *ctx, tdb *db)
+struct job_arg{
+    tdb *db;
+    reel_script_ctx *ctx;
+    uint64_t shard_idx;
+    uint64_t start_trail;
+    uint64_t end_trail;
+};
+
+static void *job_query_shard(void *arg0)
 {
-    uint64_t trail_id, num_events;
+    struct job_arg *arg = (struct job_arg*)arg0;
     const tdb_event **events;
-    tdb_cursor *cursor = tdb_cursor_new(db);
+    tdb_cursor *cursor = tdb_cursor_new(arg->db);
     reel_event_buffer *buf = reel_event_buffer_new();
-    tdb_error err;
+    uint64_t trail_id, num_events;
+    reel_error err;
 
-    if (!(cursor && buf)){
-        fprintf(stderr, "Evaluate out of memory\n");
-        exit(1);
-    }
+    if (!(cursor && buf))
+        DIE("Query shard out of memory\n");
 
-    for (trail_id = 0; trail_id < tdb_num_trails(db); trail_id++)
-    {
-        //if (!(trail_id & 1023))
-        //    fprintf(stderr, "Processing trail %lu\n", trail_id);
+    for (trail_id = arg->start_trail; trail_id < arg->end_trail; trail_id++){
 
-        tdb_get_trail(cursor, trail_id);
-
-        if (!(events = reel_event_buffer_fill(buf, cursor, &num_events))){
-            fprintf(stderr,
-                    "[trail %"PRIu64"] Event buffer out of memory\n",
-                    trail_id);
-            exit(1);
+        if (!((trail_id - arg->start_trail) & 65535)){
+            uint64_t perc = (100 * (trail_id - arg->start_trail)) /
+                            (arg->end_trail - arg->start_trail);
+            fprintf(stderr, "[thread %lu] %lu%% trails evaluated\n", arg->shard_idx, perc);
         }
-        if ((err = reel_script_eval_trail(ctx, events, num_events))){
-            fprintf(stderr,
-                    "[trail %"PRIu64"] Script failed: %s\n",
-                    trail_id,
-                    reel_error_str(err));
-            exit(1);
-        }
+
+        if (tdb_get_trail(cursor, trail_id))
+            DIE("tdb_get_trail failed\n");
+
+        if (!(events = reel_event_buffer_fill(buf, cursor, &num_events)))
+            DIE("Event buffer out of memory\n");
+
+        if ((err = reel_script_eval_trail(arg->ctx, events, num_events)))
+            DIE("[trail %"PRIu64"] Script failed: %s\n",
+                trail_id,
+                reel_error_str(err));
     }
+    fprintf(stderr, "[thread %lu] 100%% trails evaluated\n", arg->shard_idx);
 
     reel_event_buffer_free(buf);
+    tdb_cursor_free(cursor);
+    return NULL;
 }
 
-static char *open_file(const char *arg, const char *path)
+static void evaluate(const tdb *db, reel_script_ctx *ctx, const char *tdb_path)
 {
+    uint64_t i, num_trails, trails_per_shard;
+    struct job_arg *args;
+    struct thread_job *jobs;
+
+    num_trails = tdb_num_trails(db);
+    if (num_threads > num_trails)
+        num_threads = num_trails;
+
+    trails_per_shard = num_trails / num_threads;
+
+    if (!(args = calloc(num_threads, sizeof(struct job_arg))))
+        DIE("Couldn't allocate args\n");
+
+    if (!(jobs = calloc(num_threads, sizeof(struct thread_job))))
+        DIE("Couldn't allocate jobs\n");
+
+    for (i = 0; i < num_threads; i++){
+        args[i].db = tdb_init();
+        if (tdb_open(args[i].db, tdb_path))
+            DIE("Could not open tdb at %s\n", tdb_path);
+        if (!(args[i].ctx = reel_script_clone(ctx, args[i].db, 0, 0)))
+            DIE("Could not clone a Reel context. Out of memory?\n");
+
+        args[i].shard_idx = i;
+        args[i].start_trail = i * trails_per_shard;
+        args[i].end_trail = (i + 1) * trails_per_shard;
+        if (args[i].end_trail > num_trails)
+            args[i].end_trail = num_trails;
+
+        jobs[i].arg = &args[i];
+    }
+
+    execute_jobs(job_query_shard, jobs, num_threads, num_threads);
+
+    for (i = 0; i < num_threads; i++){
+        reel_error err = reel_script_merge(ctx, args[i].ctx, REEL_MERGE_ADD);
+        if (err)
+            DIE("Merging results failed: %s\n", reel_error_str(err));
+        reel_script_free(args[i].ctx);
+        tdb_close(args[i].db);
+    }
+    free(args);
+    free(jobs);
+}
+
+static char *open_file(const char *arg, const char *path){
     int fd;
     struct stat stats;
 
@@ -116,8 +168,19 @@ static void print_usage_and_exit()
 "OPTIONS:\n"
 "-s --set var=value    Set a variable in the Reel script.\n"
 "                      Use var=@filename to read value from a file.\n"
+"-T --threads N        Use N parallel threads to execute the query.\n"
 "\n");
     exit(1);
+}
+
+long int safely_to_int(const char *str, const char *field)
+{
+    char *end = NULL;
+    errno = 0;
+    long int x = strtol(str, &end, 10);
+    if (errno || *end)
+        DIE("Invalid %s: %s", field, str);
+    return x;
 }
 
 static void initialize(reel_script_ctx *ctx, int argc, char **argv)
@@ -129,10 +192,12 @@ static void initialize(reel_script_ctx *ctx, int argc, char **argv)
 
     int c, option_index = 1;
 
+    num_threads = 1;
+
     do{
         c = getopt_long(argc,
                         argv,
-                        "s:",
+                        "s:T:",
                         long_options,
                         &option_index);
 
@@ -141,6 +206,9 @@ static void initialize(reel_script_ctx *ctx, int argc, char **argv)
                 break;
             case 's':
                 set_var(ctx, optarg);
+                break;
+            case 'T':
+                num_threads = safely_to_int(optarg, "number of threads");
                 break;
             default:
                 print_usage_and_exit();
@@ -152,19 +220,24 @@ int main(int argc, char **argv)
 {
     tdb *db = tdb_init();
     tdb_error err;
+    const char *path;
 
     if (argc < 2)
         print_usage_and_exit();
 
-    if ((err = tdb_open(db, argv[argc - 1]))){
-        DIE("Could not open tdb at %s\n", argv[argc - 1]);
-    }
+    path = argv[argc - 1];
+    if ((err = tdb_open(db, path)))
+        DIE("Could not open tdb at %s\n", path);
+
     reel_script_ctx *ctx = reel_script_new(db);
     if (!ctx)
         DIE("Couldn't initialize the Reel script. Out of memory?\n");
     initialize(ctx, argc, argv);
-    evaluate(ctx, db);
+    evaluate(db, ctx, path);
+
     printf("%s\n", reel_script_output_csv(ctx, ','));
+
     reel_script_free(ctx);
+    tdb_close(db);
     return 0;
 }

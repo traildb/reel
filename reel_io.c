@@ -218,7 +218,9 @@ static void reel_merge_vars(reel_ctx *dst, const reel_ctx *src, reel_merge_mode 
                     if (!(src->vars[i].flags & REEL_FLAG_IS_CONST)){
                         src_table = (const uint64_t*)src->vars[i].value;
                         dst_table = (uint64_t*)dst->vars[i].value;
-                        memcpy(dst_table, src_table, src->vars[i].table_length * 8);
+                        memcpy(dst_table,
+                               src_table,
+                               src->vars[i].table_length * sizeof(uintptr_t));
                     }
                     break;
             }
@@ -246,8 +248,10 @@ static reel_error reel_merge_ctx(reel_ctx *dst, const reel_ctx *src, reel_merge_
         if (*ptr)
             dst_child = (reel_ctx*)*ptr;
         else{
-            if (!(dst_child = reel_clone(src_child, 0)))
+            if (!(dst_child = reel_clone(src_child, NULL, 1, 0)))
                 return REEL_OUT_OF_MEMORY;
+            dst_child->root = dst;
+            dst_child->db = dst->db;
             *ptr = (Word_t)dst_child;
         }
         reel_merge_vars(dst_child, src_child, mode);

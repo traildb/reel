@@ -235,15 +235,22 @@ static int reel_init_table(reel_var *var, const tdb *db, const char *field_name)
 
 /* fork */
 
-static reel_ctx *reel_clone(const reel_ctx *src, int do_deep_copy)
+static reel_ctx *reel_clone(const reel_ctx *src,
+                            tdb *db,
+                            int do_reset,
+                            int do_deep_copy)
 {
     uint64_t i;
-    reel_ctx *ctx = malloc(sizeof(reel_ctx));
-    if (!ctx)
+    reel_ctx *ctx;
+
+    if (!(ctx = malloc(sizeof(reel_ctx))))
         return NULL;
 
     memcpy(ctx, src, sizeof(reel_ctx));
     ctx->trail_id = 0;
+
+    if (db)
+        ctx->db = db;
 
     /* handle variables */
     for (i = 0; i < sizeof(ctx->vars) / sizeof(reel_var); i++){
@@ -255,12 +262,22 @@ static reel_ctx *reel_clone(const reel_ctx *src, int do_deep_copy)
                 if (!(p = calloc(v->table_length, sizeof(uintptr_t))))
                     goto out_of_mem;
                 v->value = (uintptr_t)p;
+                if (!do_reset)
+                    memcpy(p,
+                           (const char*)v->value,
+                           v->table_length * sizeof(uintptr_t));
+
             }
-        }else
+        }else if (do_reset)
             /* zero scalar variables */
             v->value = 0;
     }
 
+    /*
+    Make the new context a parent context.
+    This may be changed later (see below).
+    */
+    ctx->root = ctx;
     ctx->child_contexts = NULL;
     ctx->evaluated_contexts = NULL;
 
@@ -270,10 +287,13 @@ static reel_ctx *reel_clone(const reel_ctx *src, int do_deep_copy)
 
         JLF(ptr, src->child_contexts, key);
         while (ptr){
-            const reel_ctx *child = (const reel_ctx*)*ptr;
-            JLI(ptr, ctx->child_contexts, key);
-            if (!(*ptr = (Word_t)reel_clone(child, 0)))
+            const reel_ctx *src_child = (const reel_ctx*)*ptr;
+            reel_ctx *dst_child = reel_clone(src_child, db, do_reset, 0);
+            if (!dst_child)
                 goto out_of_mem;
+            dst_child->root = ctx;
+            JLI(ptr, ctx->child_contexts, key);
+            *ptr = (Word_t)dst_child;
             JLN(ptr, src->child_contexts, key);
         }
     }
@@ -295,7 +315,7 @@ static int reel_fork(reel_ctx *ctx, Word_t key)
 
         JLI(ptr, ctx->root->child_contexts, key);
         if (!*ptr){
-            reel_ctx *child = reel_clone(ctx, 0);
+            reel_ctx *child = reel_clone(ctx, NULL, 1, 0);
             if (!child){
                 ctx->error = REEL_FORK_FAILED;
                 return 0;

@@ -27,8 +27,9 @@ gcc -o reel_query\
     -L $TRAILDB/build\
     -I .\
     -I $TRAILDB/src/\
-    reel_query.c reel_util.c reel_script.c\
+    reel_query.c reel_util.c reel_script.c thread_util.c\
     -ltraildb\
-    -lJudy
+    -lJudy\
+    -lpthread
 
 LD_LIBRARY_PATH=$TRAILDB/build ./reel_query $@

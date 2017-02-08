@@ -528,6 +528,11 @@ char *{prefix}_output_csv(const {prefix}_ctx *ctx, char delimiter)
 {i}return reel_output_csv(ctx, delimiter);
 }}
 
+{prefix}_ctx *{prefix}_clone(const {prefix}_ctx *ctx, tdb *db, int do_reset, int do_deep_copy)
+{{
+{i}return reel_clone(ctx, db, do_reset, do_deep_copy);
+}}
+
 reel_parse_error {prefix}_parse_var({prefix}_ctx *ctx, const char *var_name, const char *value)
 {{
 {i}return reel_parse_var(ctx, var_name, value);
@@ -609,6 +614,8 @@ reel_var *{prefix}_get_vars({prefix}_ctx *ctx, uint32_t *num_vars);
 int {prefix}_get_forks(const {prefix}_ctx *ctx, {prefix}_ctx **ctxs, uint64_t *num_ctxs, uint64_t *ctxs_size);
 
 reel_error {prefix}_merge({prefix}_ctx *dst, const {prefix}_ctx *src, reel_merge_mode mode);
+
+{prefix}_ctx *{prefix}_clone(const {prefix}_ctx *ctx, tdb *db, int do_reset, int do_deep_copy);
 
 char *{prefix}_output_csv(const {prefix}_ctx *ctx, char delimiter);
 
