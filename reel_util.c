@@ -112,6 +112,8 @@ const char *reel_error_str(reel_error error)
             return "Fork failed";
         case REEL_SETPOS_OUT_OF_BOUNDS:
             return "Setpos out of bounds";
+        case REEL_MERGE_NOT_PARENT:
+            return "Only root contexts can be merged";
     };
     return "Unknown error";
 }

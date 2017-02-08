@@ -518,6 +518,11 @@ int {prefix}_get_forks(const {prefix}_ctx *ctx, {prefix}_ctx **ctxs, uint64_t *n
 {i}return reel_get_forks(ctx, ctxs, num_ctxs, ctxs_size);
 }}
 
+reel_error {prefix}_merge({prefix}_ctx *dst, const {prefix}_ctx *src, reel_merge_mode mode)
+{{
+{i}return reel_merge_ctx(dst, src, mode);
+}}
+
 char *{prefix}_output_csv(const {prefix}_ctx *ctx, char delimiter)
 {{
 {i}return reel_output_csv(ctx, delimiter);
@@ -602,6 +607,8 @@ void {prefix}_free({prefix}_ctx *ctx);
 reel_var *{prefix}_get_vars({prefix}_ctx *ctx, uint32_t *num_vars);
 
 int {prefix}_get_forks(const {prefix}_ctx *ctx, {prefix}_ctx **ctxs, uint64_t *num_ctxs, uint64_t *ctxs_size);
+
+reel_error {prefix}_merge({prefix}_ctx *dst, const {prefix}_ctx *src, reel_merge_mode mode);
 
 char *{prefix}_output_csv(const {prefix}_ctx *ctx, char delimiter);
 

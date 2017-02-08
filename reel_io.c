@@ -182,6 +182,82 @@ static char *reel_str_append(char *buf,
     }
 }
 
+static void reel_merge_vars(reel_ctx *dst, const reel_ctx *src, reel_merge_mode mode)
+{
+    uint64_t i, j;
+    uint64_t *dst_table;
+    const uint64_t *src_table;
+
+    if (mode == REEL_MERGE_ADD){
+        for (i = 0; i < sizeof(src->vars) / sizeof(reel_var); i++){
+            switch (src->vars[i].type) {
+                case REEL_UINT:
+                    dst->vars[i].value += src->vars[i].value;
+                    break;
+                case REEL_ITEM:
+                    dst->vars[i].value = src->vars[i].value;
+                    break;
+                case REEL_UINTTABLE:
+                    if (!(src->vars[i].flags & REEL_FLAG_IS_CONST)){
+                        src_table = (const uint64_t*)src->vars[i].value;
+                        dst_table = (uint64_t*)dst->vars[i].value;
+                        for (j = 0; j < src->vars[i].table_length; j++)
+                            dst_table[j] += src_table[j];
+                    }
+                    break;
+            }
+        }
+    }else if (mode == REEL_MERGE_OVERWRITE){
+        for (i = 0; i < sizeof(src->vars) / sizeof(reel_var); i++){
+            switch (src->vars[i].type) {
+                case REEL_UINT:
+                case REEL_ITEM:
+                    dst->vars[i].value = src->vars[i].value;
+                    break;
+                case REEL_UINTTABLE:
+                    if (!(src->vars[i].flags & REEL_FLAG_IS_CONST)){
+                        src_table = (const uint64_t*)src->vars[i].value;
+                        dst_table = (uint64_t*)dst->vars[i].value;
+                        memcpy(dst_table, src_table, src->vars[i].table_length * 8);
+                    }
+                    break;
+            }
+        }
+    }
+}
+
+static reel_error reel_merge_ctx(reel_ctx *dst, const reel_ctx *src, reel_merge_mode mode)
+{
+    Word_t *ptr;
+    Word_t key = 0;
+
+    if (!(dst == dst->root && src == src->root))
+        return REEL_MERGE_NOT_PARENT;
+
+    reel_merge_vars(dst, src, mode);
+
+    /* handle children */
+    JLF(ptr, src->child_contexts, key);
+    while (ptr){
+        const reel_ctx *src_child = (const reel_ctx*)*ptr;
+        reel_ctx *dst_child;
+
+        JLI(ptr, dst->child_contexts, key);
+        if (*ptr)
+            dst_child = (reel_ctx*)*ptr;
+        else{
+            if (!(dst_child = reel_clone(src_child, 0)))
+                return REEL_OUT_OF_MEMORY;
+            *ptr = (Word_t)dst_child;
+        }
+        reel_merge_vars(dst_child, src_child, mode);
+
+        JLN(ptr, src->child_contexts, key);
+    }
+
+    return 0;
+}
+
 #define STRADD(...) if (!(buf = reel_str_append(buf, offset, size, __VA_ARGS__))) return NULL;
 
 static char *reel_output_csv_ctx(const reel_ctx *ctx,
@@ -285,4 +361,5 @@ static char *reel_output_csv(const reel_ctx *ctx, char delimiter)
     }
     return buf;
 }
+
 

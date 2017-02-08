@@ -13,10 +13,18 @@ typedef enum {
 } reel_var_type;
 
 typedef enum {
+    REEL_MERGE_ADD = 1,
+    REEL_MERGE_OVERWRITE = 2
+} reel_merge_mode;
+
+typedef enum {
     REEL_OUT_OF_MEMORY = -1,
     REEL_FORK_FAILED = -2,
-    REEL_SETPOS_OUT_OF_BOUNDS = 3,
-    REEL_TABLE_MISMATCH = -200
+    REEL_SETPOS_OUT_OF_BOUNDS = -3,
+
+    REEL_TABLE_MISMATCH = -200,
+
+    REEL_MERGE_NOT_PARENT = -800,
 } reel_error;
 
 typedef enum {

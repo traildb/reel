@@ -235,6 +235,55 @@ static int reel_init_table(reel_var *var, const tdb *db, const char *field_name)
 
 /* fork */
 
+static reel_ctx *reel_clone(const reel_ctx *src, int do_deep_copy)
+{
+    uint64_t i;
+    reel_ctx *ctx = malloc(sizeof(reel_ctx));
+    if (!ctx)
+        return NULL;
+
+    memcpy(ctx, src, sizeof(reel_ctx));
+    ctx->trail_id = 0;
+
+    /* handle variables */
+    for (i = 0; i < sizeof(ctx->vars) / sizeof(reel_var); i++){
+        reel_var *v = &ctx->vars[i];
+        if (v->table_field){
+            /* const tables are shared */
+            if (!(v->flags & REEL_FLAG_IS_CONST)){
+                char *p;
+                if (!(p = calloc(v->table_length, sizeof(uintptr_t))))
+                    goto out_of_mem;
+                v->value = (uintptr_t)p;
+            }
+        }else
+            /* zero scalar variables */
+            v->value = 0;
+    }
+
+    ctx->child_contexts = NULL;
+    ctx->evaluated_contexts = NULL;
+
+    if (do_deep_copy){
+        Word_t *ptr;
+        Word_t key = 0;
+
+        JLF(ptr, src->child_contexts, key);
+        while (ptr){
+            const reel_ctx *child = (const reel_ctx*)*ptr;
+            JLI(ptr, ctx->child_contexts, key);
+            if (!(*ptr = (Word_t)reel_clone(child, 0)))
+                goto out_of_mem;
+            JLN(ptr, src->child_contexts, key);
+        }
+    }
+    return ctx;
+out_of_mem:
+    /* XXX we leak some memory here, tables and children are not freed */
+    free(ctx);
+    return NULL;
+}
+
 static int reel_fork(reel_ctx *ctx, Word_t key)
 {
     int not_exists;
@@ -242,36 +291,16 @@ static int reel_fork(reel_ctx *ctx, Word_t key)
     if (!not_exists){
         return 0;
     }else{
-        uint64_t i;
         Word_t *ptr;
 
         JLI(ptr, ctx->root->child_contexts, key);
         if (!*ptr){
-            reel_ctx *child = malloc(sizeof(reel_ctx));
+            reel_ctx *child = reel_clone(ctx, 0);
             if (!child){
                 ctx->error = REEL_FORK_FAILED;
                 return 0;
             }
-            memcpy(child, ctx, sizeof(reel_ctx));
-            child->child_contexts = NULL;
-            child->evaluated_contexts = NULL;
             *ptr = (Word_t)child;
-
-            for (i = 0; i < sizeof(ctx->vars) / sizeof(reel_var); i++){
-                reel_var *v = &ctx->vars[i];
-                if (v->table_field){
-                    /* const tables are shared */
-                    if (!(v->flags & REEL_FLAG_IS_CONST)){
-                        char *p;
-                        if (!(p = calloc(v->table_length, sizeof(uintptr_t)))){
-                            ctx->error = REEL_FORK_FAILED;
-                            return 0;
-                        }
-                        child->vars[i].value = (uintptr_t)p;
-                    }
-                }else
-                    child->vars[i].value = 0;
-            }
         }
         ctx->child = (reel_ctx*)*ptr;
         return 1;
