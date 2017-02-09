@@ -3,15 +3,15 @@ set -e
 
 if [ -z $1 ]
 then
-    echo "Usage: ./reel reel_script.rl [options] traildb.tdb"
+    echo "Usage: ./reel reel_script.rl [options] [traildb.tdb]"
     exit 1
 fi
 
-if [ -z $TRAILDB ]
-then
-    echo "Set TRAILDB to point at the root of the TrailDB repo"
-    exit 1
-fi
+#if [ -z $TRAILDB ]
+#then
+#    echo "Set TRAILDB to point at the root of the TrailDB repo"
+#    exit 1
+#fi
 
 SOURCE=$1
 shift
@@ -32,4 +32,9 @@ gcc -o reel_query\
     -lJudy\
     -lpthread
 
-LD_LIBRARY_PATH=$TRAILDB/build ./reel_query $@
+if [ $@ ]
+then
+    LD_LIBRARY_PATH=$TRAILDB/build ./reel_query $@
+else
+    echo "reel_query compiled successfully"
+fi
