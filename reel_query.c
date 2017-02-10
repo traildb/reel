@@ -13,8 +13,6 @@
 #include "reel_util.h"
 #include "thread_util.h"
 
-static long num_threads;
-
 struct job_arg{
     tdb *db;
     reel_script_ctx *ctx;
@@ -22,6 +20,15 @@ struct job_arg{
     uint64_t start_trail;
     uint64_t end_trail;
 };
+
+struct selected_trail{
+    uint64_t trail_id;
+    struct tdb_event_filter *filter;
+};
+
+static long num_threads;
+static struct selected_trail *selected_trails;
+static uint64_t num_selected;
 
 static void *job_query_shard(void *arg0)
 {
@@ -49,16 +56,39 @@ static void *job_query_shard(void *arg0)
         if (!(events = reel_event_buffer_fill(buf, cursor, &num_events)))
             DIE("Event buffer out of memory\n");
 
-        if ((err = reel_script_eval_trail(arg->ctx, events, num_events)))
-            DIE("[trail %"PRIu64"] Script failed: %s\n",
-                trail_id,
-                reel_error_str(err));
+        if (num_events)
+            if ((err = reel_script_eval_trail(arg->ctx, events, num_events)))
+                DIE("[trail %"PRIu64"] Script failed: %s\n",
+                    trail_id,
+                    reel_error_str(err));
     }
     fprintf(stderr, "[thread %lu] 100%% trails evaluated\n", arg->shard_idx);
 
     reel_event_buffer_free(buf);
     tdb_cursor_free(cursor);
     return NULL;
+}
+
+static void apply_filters(tdb *db)
+{
+    uint64_t i;
+    struct tdb_event_filter *empty = tdb_event_filter_new_match_none();
+    tdb_opt_value value = {.ptr = empty};
+
+    if (!empty)
+        DIE("Couldn't allocate an empty filter\n");
+
+    if (tdb_set_opt(db, TDB_OPT_EVENT_FILTER, value))
+        DIE("Blacklisting trails failed\n");
+
+    for (i = 0; i < num_selected; i++){
+        value.ptr = selected_trails[i].filter;
+        if (tdb_set_trail_opt(db,
+                              selected_trails[i].trail_id,
+                              TDB_OPT_EVENT_FILTER,
+                              value))
+            DIE("Setting a trail filter failed\n");
+    }
 }
 
 static void evaluate(const tdb *db, reel_script_ctx *ctx, const char *tdb_path)
@@ -83,6 +113,10 @@ static void evaluate(const tdb *db, reel_script_ctx *ctx, const char *tdb_path)
         args[i].db = tdb_init();
         if (tdb_open(args[i].db, tdb_path))
             DIE("Could not open tdb at %s\n", tdb_path);
+
+        if (num_selected)
+            apply_filters(args[i].db);
+
         if (!(args[i].ctx = reel_script_clone(ctx, args[i].db, 0, 0)))
             DIE("Could not clone a Reel context. Out of memory?\n");
 
@@ -166,27 +200,104 @@ static void print_usage_and_exit()
 "reel_query [options] traildb\n"
 "\n"
 "OPTIONS:\n"
-"-s --set var=value    Set a variable in the Reel script.\n"
-"                      Use var=@filename to read value from a file.\n"
-"-T --threads N        Use N parallel threads to execute the query.\n"
+"-s --set var=value      Set a variable in the Reel script.\n"
+"                        Use var=@filename to read value from a file.\n"
+"-T --threads N          Use N parallel threads to execute the query.\n"
+"-S --select trailspec   Query limited time ranges on select trails (see below).\n"
+"\n"
+"Trailspec:\n"
+"You can query a subset of trails, or query a chosen time range of select\n"
+"trails, with the --select option. The --select option takes a file that\n"
+"specifies trails to be selected, identified by a UUID, and optionally a\n"
+"start time and an optional end time for the trail in each line:\n\n"
+"[32-char hex-encoded UUID] <[start-time] [end-time]>\n\n"
+"Unknown UUIDs are ignored.\n"
 "\n");
     exit(1);
 }
 
-long int safely_to_int(const char *str, const char *field)
+uint64_t safely_to_uint(const char *str, const char *field)
 {
     char *end = NULL;
     errno = 0;
-    long int x = strtol(str, &end, 10);
+    long int x = strtoul(str, &end, 10);
     if (errno || *end)
         DIE("Invalid %s: %s", field, str);
     return x;
 }
 
-static void initialize(reel_script_ctx *ctx, int argc, char **argv)
+static void parse_select(const char *fname, const tdb *db)
+{
+    FILE *in;
+    size_t n = 0;
+    ssize_t line_len;
+    char *line = NULL;
+    uint8_t uuid[16];
+    uint64_t num_lines = 0;
+
+    if (!(in = fopen(fname, "r")))
+        DIE("Could not open trailspec in %s\n", fname);
+
+    while ((line_len = getline(&line, &n, in)) != -1)
+        ++num_lines;
+
+    if (!(selected_trails = malloc(num_lines * sizeof(struct selected_trail))))
+        DIE("Couldn't allocated selected trails\n");
+
+    rewind(in);
+    while ((line_len = getline(&line, &n, in)) != -1){
+        line[line_len - 1] = 0;
+
+        char *p = NULL;
+        char *uuidstr = strtok_r(line, " ", &p);
+        char *startstr = strtok_r(NULL, " ", &p);
+        char *endstr = strtok_r(NULL, " ", &p);
+        uint64_t start_time = 0;
+        uint64_t end_time = TDB_MAX_TIMEDELTA + 1;
+        uint64_t trail_id;
+        struct tdb_event_filter *filter;
+
+        if (tdb_uuid_raw((const uint8_t*)uuidstr, uuid))
+            DIE("Invalid UUID: %s\n", uuidstr);
+
+        if (tdb_get_trail_id(db, uuid, &trail_id))
+            continue;
+
+        if (startstr){
+            start_time = safely_to_uint(startstr, "start time");
+            if (endstr)
+                end_time = safely_to_uint(endstr, "end time");
+        }
+
+        if (!(filter = tdb_event_filter_new()))
+            DIE("Creating an event filter failed. Out of memory?\n");
+        if (tdb_event_filter_add_time_range(filter, start_time, end_time))
+            DIE("Filter add time range failed. Out of memory?\n");
+
+        selected_trails[num_selected].trail_id = trail_id;
+        selected_trails[num_selected].filter = filter;
+        ++num_selected;
+    }
+
+    fprintf(stderr,
+            "Total trails: %lu Selected trails: %lu Unknown UUIDs: %lu\n",
+            tdb_num_trails(db),
+            num_selected,
+            num_lines - num_selected);
+
+    free(line);
+    fclose(in);
+}
+
+static void initialize(reel_script_ctx *ctx,
+                       const tdb *db,
+                       int argc,
+                       char **argv)
 {
     static struct option long_options[] = {
         {"set", required_argument, 0, 's'},
+        {"threads", required_argument, 0, 'T'},
+        {"select", required_argument, 0, 'S'},
         {0, 0, 0, 0}
     };
 
@@ -197,7 +308,7 @@ static void initialize(reel_script_ctx *ctx, int argc, char **argv)
     do{
         c = getopt_long(argc,
                         argv,
-                        "s:T:",
+                        "s:T:S:",
                         long_options,
                         &option_index);
 
@@ -208,7 +319,10 @@ static void initialize(reel_script_ctx *ctx, int argc, char **argv)
                 set_var(ctx, optarg);
                 break;
             case 'T':
-                num_threads = safely_to_int(optarg, "number of threads");
+                num_threads = safely_to_uint(optarg, "number of threads");
+                break;
+            case 'S':
+                parse_select(optarg, db);
                 break;
             default:
                 print_usage_and_exit();
@@ -232,7 +346,7 @@ int main(int argc, char **argv)
     reel_script_ctx *ctx = reel_script_new(db);
     if (!ctx)
         DIE("Couldn't initialize the Reel script. Out of memory?\n");
-    initialize(ctx, argc, argv);
+    initialize(ctx, db, argc, argv);
     evaluate(db, ctx, path);
 
     printf("%s\n", reel_script_output_csv(ctx, ','));
