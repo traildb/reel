@@ -272,7 +272,7 @@ static void parse_select(const char *fname, const tdb *db)
         if (!(filter = tdb_event_filter_new()))
             DIE("Creating an event filter failed. Out of memory?\n");
         if (tdb_event_filter_add_time_range(filter, start_time, end_time))
-            DIE("Filter add time range failed. Out of memory?\n");
+            DIE("Filter add time range failed (start %lu end %lu filter index %lu). Out of memory?\n", start_time, end_time, num_selected);
 
         selected_trails[num_selected].trail_id = trail_id;
         selected_trails[num_selected].filter = filter;
