@@ -246,7 +246,8 @@ static void parse_select(const char *fname, const tdb *db)
 
     rewind(in);
     while ((line_len = getline(&line, &n, in)) != -1){
-        line[line_len - 1] = 0;
+        if (line[line_len - 1] == '\n')
+            line[line_len - 1] = 0;
 
         char *p = NULL;
         char *uuidstr = strtok_r(line, " ", &p);
