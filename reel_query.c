@@ -29,6 +29,7 @@ struct selected_trail{
 static long num_threads;
 static struct selected_trail *selected_trails;
 static uint64_t num_selected;
+static int show_progress;
 
 static void *job_query_shard(void *arg0)
 {
@@ -43,11 +44,14 @@ static void *job_query_shard(void *arg0)
         DIE("Query shard out of memory\n");
 
     for (trail_id = arg->start_trail; trail_id < arg->end_trail; trail_id++){
-
-        if (!((trail_id - arg->start_trail) & 65535)){
-            uint64_t perc = (100 * (trail_id - arg->start_trail)) /
-                            (arg->end_trail - arg->start_trail);
-            fprintf(stderr, "[thread %lu] %lu%% trails evaluated\n", arg->shard_idx, perc);
+        if (show_progress){
+            if (!((trail_id - arg->start_trail) & 65535)){
+                uint64_t perc = (100 * (trail_id - arg->start_trail)) /
+                                (arg->end_trail - arg->start_trail);
+                fprintf(stderr,
+                        "[thread %lu] %lu%% trails evaluated\n",
+                        arg->shard_idx, perc);
+            }
         }
 
         if (tdb_get_trail(cursor, trail_id))
@@ -62,7 +66,10 @@ static void *job_query_shard(void *arg0)
                     trail_id,
                     reel_error_str(err));
     }
-    fprintf(stderr, "[thread %lu] 100%% trails evaluated\n", arg->shard_idx);
+    if (show_progress)
+        fprintf(stderr,
+                "[thread %lu] 100%% trails evaluated\n",
+                arg->shard_idx);
 
     reel_event_buffer_free(buf);
     tdb_cursor_free(cursor);
@@ -204,6 +211,7 @@ static void print_usage_and_exit()
 "                        Use var=@filename to read value from a file.\n"
 "-T --threads N          Use N parallel threads to execute the query.\n"
 "-S --select trailspec   Query limited time ranges on select trails (see below).\n"
+"-P --progress           Print progress to stderr.\n"
 "\n"
 "Trailspec:\n"
 "You can query a subset of trails, or query a chosen time range of select\n"
@@ -299,6 +307,7 @@ static void initialize(reel_script_ctx *ctx,
         {"set", required_argument, 0, 's'},
         {"threads", required_argument, 0, 'T'},
         {"select", required_argument, 0, 'S'},
+        {"progress", no_argument, 0, 'P'},
         {0, 0, 0, 0}
     };
 
@@ -309,7 +318,7 @@ static void initialize(reel_script_ctx *ctx,
     do{
         c = getopt_long(argc,
                         argv,
-                        "s:T:S:",
+                        "s:T:S:P",
                         long_options,
                         &option_index);
 
@@ -324,6 +333,9 @@ static void initialize(reel_script_ctx *ctx,
                 break;
             case 'S':
                 parse_select(optarg, db);
+                break;
+            case 'P':
+                show_progress = 1;
                 break;
             default:
                 print_usage_and_exit();
