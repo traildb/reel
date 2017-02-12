@@ -32,7 +32,7 @@ gcc -o reel_query\
     -lJudy\
     -lpthread
 
-if [ $@ ]
+if [ $# -ne 0 ]
 then
     LD_LIBRARY_PATH=$TRAILDB/build ./reel_query $@
 else
