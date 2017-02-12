@@ -121,7 +121,7 @@ static void evaluate(const tdb *db, reel_script_ctx *ctx, const char *tdb_path)
         if (tdb_open(args[i].db, tdb_path))
             DIE("Could not open tdb at %s\n", tdb_path);
 
-        if (num_selected)
+        if (selected_trails)
             apply_filters(args[i].db);
 
         if (!(args[i].ctx = reel_script_clone(ctx, args[i].db, 0, 0)))
@@ -360,7 +360,15 @@ int main(int argc, char **argv)
     if (!ctx)
         DIE("Couldn't initialize the Reel script. Out of memory?\n");
     initialize(ctx, db, argc, argv);
-    evaluate(db, ctx, path);
+
+    /*
+    if --select was enabled but no trails match,
+    we don't need to eval anything
+    */
+    if (!(selected_trails && !num_selected))
+        evaluate(db, ctx, path);
+    else
+        fprintf(stderr, "No trails match --select. No query executed.\n");
 
     printf("%s\n", reel_script_output_csv(ctx, ','));
 
