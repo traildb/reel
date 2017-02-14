@@ -145,6 +145,16 @@ static inline int reelfunc_if_uint(reel_ctx *ctx, const tdb_event *ev, uint32_t 
     return val != 0;
 }
 
+static inline int reelfunc_if_tableitem(reel_ctx *ctx, const tdb_event *ev, uint32_t func_idx, reel_var *val){
+    if (val->table_value_type != REEL_UINT)
+        ctx->error = REEL_TABLE_MISMATCH;
+    else if (val->table_field){
+        const uint64_t *src = (const uint64_t*)val->value;
+        return src[tdb_item_val(ev->items[val->table_field - 1])] != 0;
+    }
+    return 0;
+}
+
 static inline int reelfunc_if_uintptr(reel_ctx *ctx, const tdb_event *ev, uint32_t func_idx, uint64_t *val){
     return *val != 0;
 }
