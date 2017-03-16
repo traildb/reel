@@ -19,6 +19,8 @@ shift
 if [ $DEBUG ]
 then
     WARN="-Wall -Wno-unused-label -Wno-unused-function"
+else
+    WARN="-Wno-format -Wno-incompatible-pointer-types"
 fi
 
 rm -f reel_query reel_script.c reel_script.h
