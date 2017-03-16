@@ -16,14 +16,17 @@ fi
 SOURCE=$1
 shift
 
+if [ $DEBUG ]
+then
+    WARN="-Wall -Wno-unused-label -Wno-unused-function"
+fi
+
 rm -f reel_query reel_script.c reel_script.h
 ./reel_compile $SOURCE
-gcc -o reel_query\
+gcc $WARN\
+    -o reel_query\
     -g\
     -O3\
-    -Wall\
-    -Wno-unused-label\
-    -Wno-unused-function\
     -L $TRAILDB/build\
     -I .\
     -I $TRAILDB/src/\
