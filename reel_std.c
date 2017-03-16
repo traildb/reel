@@ -84,6 +84,16 @@ static inline void reelfunc_set_tableitem_uint(reel_ctx *ctx, const tdb_event *e
     }
 }
 
+static inline void reelfunc_set_tableitem_uintptr(reel_ctx *ctx, const tdb_event *ev, uint32_t func_idx, reel_var *lval, uint64_t *rval){
+
+    if (lval->table_value_type != REEL_UINT){
+        ctx->error = REEL_TABLE_MISMATCH;
+    }else if (lval->table_field){
+        uint64_t *dst = (uint64_t*)lval->value;
+        dst[tdb_item_val(ev->items[lval->table_field - 1])] = *rval;
+    }
+}
+
 static inline void reelfunc_set_uintptr_tableitem(reel_ctx *ctx, const tdb_event *ev, uint32_t func_idx, uint64_t *lval, reel_var *rval){
 
     if (rval->table_value_type != REEL_UINT){
