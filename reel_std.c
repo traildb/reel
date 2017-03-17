@@ -177,6 +177,53 @@ static inline int reelfunc_if_uintptr_uint(reel_ctx *ctx, const tdb_event *ev, u
     return *lval == rval;
 }
 
+/* identity */
+
+#define MAX_ID_ITEMS 6
+
+static int reel_identity(reel_ctx *ctx, uint64_t *dst, const uint64_t args[MAX_ID_ITEMS])
+{
+    Word_t *ptr;
+    JHSI(ptr, ctx->identities, (uint8_t*)args, MAX_ID_ITEMS * sizeof(uint64_t))
+    if (!*ptr){
+        *ptr = *dst = ++ctx->identity_counter;
+        return 1;
+    }else{
+        *dst = *ptr;
+        return 0;
+    }
+}
+
+static inline int reelfunc_id_uintptr_item(reel_ctx *ctx, const tdb_event *ev, uint32_t func_idx, uint64_t *lval, uint64_t v1){
+    uint64_t args[MAX_ID_ITEMS] = {v1, 0, 0, 0, 0, 0};
+    return reel_identity(ctx, lval, args);
+}
+
+static inline int reelfunc_id_uintptr_item_item(reel_ctx *ctx, const tdb_event *ev, uint32_t func_idx, uint64_t *lval, uint64_t v1, uint64_t v2){
+    uint64_t args[MAX_ID_ITEMS] = {v1, v2, 0, 0, 0, 0};
+    return reel_identity(ctx, lval, args);
+}
+
+static inline int reelfunc_id_uintptr_item_item_item(reel_ctx *ctx, const tdb_event *ev, uint32_t func_idx, uint64_t *lval, uint64_t v1, uint64_t v2, uint64_t v3){
+    uint64_t args[MAX_ID_ITEMS] = {v1, v2, v3, 0, 0, 0};
+    return reel_identity(ctx, lval, args);
+}
+
+static inline int reelfunc_id_uintptr_item_item_item_item(reel_ctx *ctx, const tdb_event *ev, uint32_t func_idx, uint64_t *lval, uint64_t v1, uint64_t v2, uint64_t v3, uint64_t v4){
+    uint64_t args[MAX_ID_ITEMS] = {v1, v2, v3, v4, 0, 0};
+    return reel_identity(ctx, lval, args);
+}
+
+static inline int reelfunc_id_uintptr_item_item_item_item_item(reel_ctx *ctx, const tdb_event *ev, uint32_t func_idx, uint64_t *lval, uint64_t v1, uint64_t v2, uint64_t v3, uint64_t v4, uint64_t v5){
+    uint64_t args[MAX_ID_ITEMS] = {v1, v2, v3, v4, v5, 0};
+    return reel_identity(ctx, lval, args);
+}
+
+static inline int reelfunc_id_uintptr_item_item_item_item_item_item(reel_ctx *ctx, const tdb_event *ev, uint32_t func_idx, uint64_t *lval, uint64_t v1, uint64_t v2, uint64_t v3, uint64_t v4, uint64_t v5, uint64_t v6){
+    uint64_t args[MAX_ID_ITEMS] = {v1, v2, v3, v4, v5, v6};
+    return reel_identity(ctx, lval, args);
+}
+
 /* time_before */
 
 static inline int reelfunc_time_before_uintptr_uint(reel_ctx *ctx, const tdb_event *ev, uint32_t func_idx, uint64_t *lval, uint64_t rval){

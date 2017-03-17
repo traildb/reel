@@ -428,6 +428,9 @@ struct _{prefix}_ctx {{
 {i}struct _{prefix}_ctx *child;
 {i}Pvoid_t child_contexts;
 {i}Pvoid_t evaluated_contexts;
+
+{i}Pvoid_t identities;
+{i}uint64_t identity_counter;
 {i}
 {i}reel_error error;
 }};
