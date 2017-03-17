@@ -30,6 +30,8 @@ static long num_threads;
 static struct selected_trail *selected_trails;
 static uint64_t num_selected;
 static int show_progress;
+static uint64_t opt_before;
+static uint64_t opt_after;
 
 static void *job_query_shard(void *arg0)
 {
@@ -98,6 +100,26 @@ static void apply_filters(tdb *db)
     }
 }
 
+static void apply_time_slice(tdb *db)
+{
+    struct tdb_event_filter *filter;
+    tdb_opt_value value;
+    uint64_t start_time = 0;
+    uint64_t end_time = UINT64_MAX;
+
+    if (!(filter = tdb_event_filter_new()))
+        DIE("Creating a time slice filter failed. Out of memory?\n");
+    if (opt_after)
+        start_time = opt_after - 1;
+    if (opt_before)
+        end_time = opt_before - 1;
+    if (tdb_event_filter_add_time_range(filter, start_time, end_time))
+        DIE("Filter add time range failed. Out of memory?\n");
+    value.ptr = filter;
+    if (tdb_set_opt(db, TDB_OPT_EVENT_FILTER, value))
+        DIE("Setting a time slice filter failed\n");
+}
+
 static void evaluate(const tdb *db, reel_script_ctx *ctx, const char *tdb_path)
 {
     uint64_t i, num_trails, trails_per_shard;
@@ -123,6 +145,8 @@ static void evaluate(const tdb *db, reel_script_ctx *ctx, const char *tdb_path)
 
         if (selected_trails)
             apply_filters(args[i].db);
+        else if (opt_after || opt_before)
+            apply_time_slice(args[i].db);
 
         if (!(args[i].ctx = reel_script_clone(ctx, args[i].db, 0, 0)))
             DIE("Could not clone a Reel context. Out of memory?\n");
@@ -212,6 +236,8 @@ static void print_usage_and_exit()
 "-T --threads N          Use N parallel threads to execute the query.\n"
 "-S --select trailspec   Query limited time ranges on select trails (see below).\n"
 "-P --progress           Print progress to stderr.\n"
+"   --after T            Only consider events with a timestamp >= T.\n"
+"   --before T           Only consider events with a timestamp < T.\n"
 "\n"
 "Trailspec:\n"
 "You can query a subset of trails, or query a chosen time range of select\n"
@@ -308,6 +334,8 @@ static void initialize(reel_script_ctx *ctx,
         {"threads", required_argument, 0, 'T'},
         {"select", required_argument, 0, 'S'},
         {"progress", no_argument, 0, 'P'},
+        {"after", required_argument, 0, -2},
+        {"before", required_argument, 0, -3},
         {0, 0, 0, 0}
     };
 
@@ -337,10 +365,19 @@ static void initialize(reel_script_ctx *ctx,
             case 'P':
                 show_progress = 1;
                 break;
+            case -2: /* after */
+                opt_after = safely_to_uint(optarg, "after") + 1;
+                break;
+            case -3: /* before */
+                opt_before = safely_to_uint(optarg, "before") + 1;
+                break;
             default:
                 print_usage_and_exit();
         }
     }while (c != -1);
+
+    if (selected_trails && (opt_before || opt_after))
+        DIE("Specifying both --select and --after or --before is not supported.\n");
 }
 
 int main(int argc, char **argv)
