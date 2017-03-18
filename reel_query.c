@@ -237,7 +237,11 @@ static void print_usage_and_exit()
 "-S --select trailspec   Query limited time ranges on select trails (see below).\n"
 "-P --progress           Print progress to stderr.\n"
 "   --after T            Only consider events with a timestamp >= T.\n"
+"                        Prefix T with '+' to make time relative to the\n"
+"                        minimum time in the db.\n"
 "   --before T           Only consider events with a timestamp < T.\n"
+"                        Prefix T with '+' to make time relative to the\n"
+"                        minimum time in the db.\n"
 "\n"
 "Trailspec:\n"
 "You can query a subset of trails, or query a chosen time range of select\n"
@@ -324,6 +328,15 @@ static void parse_select(const char *fname, const tdb *db)
     fclose(in);
 }
 
+static uint64_t parse_time(const tdb *db, const char *arg, const char *label)
+{
+    uint64_t t = 0;
+    if (arg[0] == '+')
+        return safely_to_uint(&arg[1], label) + tdb_min_timestamp(db) + 1;
+    else
+        return safely_to_uint(arg, label) + 1;
+}
+
 static void initialize(reel_script_ctx *ctx,
                        const tdb *db,
                        int argc,
@@ -366,10 +379,10 @@ static void initialize(reel_script_ctx *ctx,
                 show_progress = 1;
                 break;
             case -2: /* after */
-                opt_after = safely_to_uint(optarg, "after") + 1;
+                opt_after = parse_time(db, optarg, "after");
                 break;
             case -3: /* before */
-                opt_before = safely_to_uint(optarg, "before") + 1;
+                opt_before = parse_time(db, optarg, "before");
                 break;
             default:
                 print_usage_and_exit();
