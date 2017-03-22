@@ -56,6 +56,60 @@ static inline void reelfunc_inc_tableitem_tableitem(reel_ctx *ctx, const tdb_eve
     }
 }
 
+/* dec */
+
+static inline void safe_dec(uint64_t *dst, uint64_t src)
+{
+    if (*dst > src)
+        *dst -= src;
+    else
+        *dst = 0;
+}
+
+
+static inline void reelfunc_dec_uintptr_uint(reel_ctx *ctx, const tdb_event *ev, uint32_t func_idx, uint64_t *lval, uint64_t rval){
+    safe_dec(lval, rval);
+}
+
+static inline void reelfunc_dec_tableptr_tableptr(reel_ctx *ctx, const tdb_event *ev, uint32_t func_idx, reel_var *lval, reel_var *rval){
+
+    if (!(lval->table_value_type == REEL_UINT &&
+          lval->table_field == rval->table_field &&
+          lval->table_value_type == rval->table_value_type)){
+        ctx->error = REEL_TABLE_MISMATCH;
+    }else{
+        uint64_t *dst = (uint64_t*)lval->value;
+        const uint64_t *src = (uint64_t*)rval->value;
+        uint64_t i;
+        for (i = 0; i < lval->table_length; i++)
+            safe_dec(&dst[i], src[i]);
+    }
+}
+
+static inline void reelfunc_dec_tableitem_uint(reel_ctx *ctx, const tdb_event *ev, uint32_t func_idx, reel_var *lval, uint64_t rval){
+
+    if (lval->table_value_type != REEL_UINT){
+        ctx->error = REEL_TABLE_MISMATCH;
+    }else if (lval->table_field){
+        uint64_t *dst = (uint64_t*)lval->value;
+        safe_dec(&dst[tdb_item_val(ev->items[lval->table_field - 1])], rval);
+    }
+}
+
+static inline void reelfunc_dec_tableitem_tableitem(reel_ctx *ctx, const tdb_event *ev, uint32_t func_idx, reel_var *lval, reel_var *rval){
+
+    if (!(lval->table_value_type == REEL_UINT &&
+          rval->table_value_type == REEL_UINT &&
+          lval->table_field == rval->table_field))
+        ctx->error = REEL_TABLE_MISMATCH;
+    else if (lval->table_field){
+        const uint64_t *src = (const uint64_t*)rval->value;
+        uint64_t *dst = (uint64_t*)lval->value;
+        uint64_t idx = tdb_item_val(ev->items[lval->table_field - 1]);
+        safe_dec(&dst[idx], src[idx]);
+    }
+}
+
 /* set */
 
 static inline void reelfunc_set_uintptr_uint(reel_ctx *ctx, const tdb_event *ev, uint32_t func_idx, uint64_t *lval, uint64_t rval){
