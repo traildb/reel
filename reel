@@ -3,9 +3,11 @@ set -e
 
 if [ -z $1 ]
 then
-    echo "Usage: ./reel reel_script.rl [options] [traildb.tdb]"
+    echo "Usage: reel reel_script.rl [options] [traildb.tdb]"
     exit 1
 fi
+
+DIR=`dirname $0`
 
 #if [ -z $TRAILDB ]
 #then
@@ -24,15 +26,15 @@ else
 fi
 
 rm -f reel_query reel_script.c reel_script.h
-./reel_compile $SOURCE
+$DIR/reel_compile $SOURCE
 gcc $WARN\
     -o reel_query\
     -g\
     -O3\
     -L $TRAILDB/build\
-    -I .\
+    -I $DIR\
     -I $TRAILDB/src/\
-    reel_query.c reel_util.c reel_script.c thread_util.c\
+    $DIR/reel_query.c $DIR/reel_util.c $DIR/reel_script.c $DIR/thread_util.c\
     -ltraildb\
     -lJudy\
     -lpthread
