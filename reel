@@ -33,8 +33,9 @@ gcc $WARN\
     -O3\
     -L $TRAILDB/build\
     -I $DIR\
+    -I .\
     -I $TRAILDB/src/\
-    $DIR/reel_query.c $DIR/reel_util.c $DIR/reel_script.c $DIR/thread_util.c\
+    $DIR/reel_query.c $DIR/reel_util.c ./reel_script.c $DIR/thread_util.c\
     -ltraildb\
     -lJudy\
     -lpthread
