@@ -423,6 +423,7 @@ struct _{prefix}_ctx {{
 {i}void *funcstate[{func_index}];
 {i}tdb *db;
 {i}uint64_t trail_id;
+{i}uint64_t num_events;
 
 {i}struct _{prefix}_ctx *root;
 {i}struct _{prefix}_ctx *child;
@@ -552,6 +553,7 @@ def compile_eval(begin_out, end_out, body_out, out, use_array=False):
 reel_error {prefix}_eval_trail({prefix}_ctx *ctx, const tdb_event **events, uint64_t num_events)
 {{
 {i}const tdb_event *ev = NULL;
+{i}ctx->num_events = num_events;
 {i}uint64_t evidx;
 {i}Word_t tmp;
 {i}ctx->error = 0;
@@ -575,6 +577,7 @@ int {prefix}_eval_trail({prefix}_ctx *ctx, tdb_cursor *cursor, uint64_t trail_id
 {{
 {i}const tdb_event *ev;
 {i}ctx->trail_id = trail_id;
+{i}ctx->num_events = 0;
 {begin}
 start:
 {i}if (tdb_get_trail(cursor, trail_id))

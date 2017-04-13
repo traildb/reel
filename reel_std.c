@@ -11,6 +11,12 @@
     if (val < num_events) { evidx = val; goto loopstart; }\
     else { return REEL_SETPOS_OUT_OF_BOUNDS; }
 
+/* num_events */
+
+static inline void reelfunc_numevents_uintptr(reel_ctx *ctx, const tdb_event *ev, uint32_t func_idx, uint64_t *lval){
+    *lval = ctx->num_events;
+}
+
 /* inc */
 
 static inline void reelfunc_inc_uintptr_uint(reel_ctx *ctx, const tdb_event *ev, uint32_t func_idx, uint64_t *lval, uint64_t rval){
