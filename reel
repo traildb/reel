@@ -25,6 +25,11 @@ else
     WARN="-Wno-format -Wno-incompatible-pointer-types"
 fi
 
+if [ $USE_JEMALLOC ]
+then
+    JEMALLOC="-ljemalloc"
+fi
+
 rm -f reel_query reel_script.c reel_script.h
 $DIR/reel_compile $SOURCE
 gcc $WARN\
@@ -38,7 +43,8 @@ gcc $WARN\
     $DIR/reel_query.c $DIR/reel_util.c ./reel_script.c $DIR/thread_util.c\
     -ltraildb\
     -lJudy\
-    -lpthread
+    -lpthread\
+    $JEMALLOC
 
 if [ $# -ne 0 ]
 then
